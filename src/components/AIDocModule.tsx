@@ -1,0 +1,319 @@
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Sparkles, Plus, FileText, Calendar, 
+  Download, FileUp, X, Wand2, Loader2,
+  FileJson, File as FileIcon
+} from 'lucide-react';
+import { cn } from '../utils';
+import { Input } from './Common';
+import { generateEducationDocument } from '../services/aiService';
+import ReactMarkdown from 'react-markdown';
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
+
+export default function AIDocModule({ addToast }: { addToast: any }) {
+  const [docs, setDocs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState<any>(null);
+  const [params, setParams] = useState({
+    type: 'RPP (Rencana Pelaksanaan Pembelajaran)',
+    subject: 'Matematika',
+    className: 'X IPA 1',
+    topic: '',
+    objectives: '',
+    duration: '2 x 45 Menit'
+  });
+  const [token] = useState(localStorage.getItem('token'));
+
+  const fetchDocs = async () => {
+    try {
+      const res = await fetch('/api/ai-documents', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setDocs(data.filter((d: any) => d.type.includes('RPP') || d.type.includes('Modul') || d.type.includes('Materi')));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => { fetchDocs(); }, []);
+
+  const handleGenerate = async (e: any) => {
+    e.preventDefault();
+    setGenerating(true);
+    try {
+      const content = await generateEducationDocument(params);
+      
+      const res = await fetch('/api/ai-documents', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          type: params.type,
+          content: content,
+          pdf_url: null
+        })
+      });
+
+      if (res.ok) {
+        addToast('Dokumen AI berhasil dibuat');
+        setIsModalOpen(false);
+        fetchDocs();
+      }
+    } catch (e) {
+      addToast('Gagal membuat dokumen AI', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDownload = async (doc: any, format: 'pdf' | 'doc') => {
+    const contentElement = document.createElement('div');
+    contentElement.style.padding = '40px';
+    contentElement.style.width = '800px';
+    contentElement.style.background = 'white';
+    contentElement.style.color = 'black';
+    contentElement.className = 'prose prose-sm';
+    contentElement.innerHTML = `
+      <div style="font-family: sans-serif;">
+        <h1 style="text-align: center; margin-bottom: 20px;">${doc.type}</h1>
+        <hr style="margin-bottom: 30px;" />
+        <div id="markdown-content"></div>
+      </div>
+    `;
+    
+    // We need a way to render markdown to HTML for the download
+    // Since we are using react-markdown in the UI, we'll use a temporary container
+    document.body.appendChild(contentElement);
+    
+    // A bit hacky: we'll use a temporary React root or just simple string replacement if it's simple markdown
+    // But better to use a library or the existing rendered content.
+    // Let's use the content from the hidden element.
+    const markdownDiv = contentElement.querySelector('#markdown-content');
+    if (markdownDiv) {
+      const safeContent = doc.content || '';
+      // Simple markdown to HTML conversion for the download
+      markdownDiv.innerHTML = safeContent
+        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
+        .replace(/\*\*(.*)\*\*/gim, '<b>$1</b>')
+        .replace(/\*(.*)\*/gim, '<i>$1</i>')
+        .replace(/!\[(.*?)\]\((.*?)\)/gim, "<img alt='$1' src='$2' />")
+        .replace(/\[(.*?)\]\((.*?)\)/gim, "<a href='$2'>$1</a>")
+        .replace(/\n$/gim, '<br />')
+        .split('\n').map(line => line.trim() ? `<p>${line}</p>` : '').join('');
+    }
+
+    if (format === 'pdf') {
+      try {
+        const canvas = await html2canvas(contentElement, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save(`${doc.type}.pdf`);
+        addToast('PDF berhasil didownload');
+      } catch (err) {
+        addToast('Gagal membuat PDF', 'error');
+      }
+    } else {
+      const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' "+
+            "xmlns:w='urn:schemas-microsoft-com:office:word' "+
+            "xmlns='http://www.w3.org/TR/REC-html40'>"+
+            "<head><meta charset='utf-8'><title>Export HTML to Word</title></head><body>";
+      const footer = "</body></html>";
+      const sourceHTML = header + contentElement.innerHTML + footer;
+      
+      const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+      const fileLink = document.createElement("a");
+      document.body.appendChild(fileLink);
+      fileLink.href = source;
+      fileLink.download = `${doc.type}.doc`;
+      fileLink.click();
+      document.body.removeChild(fileLink);
+      addToast('DOC berhasil didownload');
+    }
+    
+    document.body.removeChild(contentElement);
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">AI Document Generator</h1>
+          <p className="text-slate-400 mt-1">Gunakan kecerdasan buatan untuk membuat RPP, Modul, dan Materi Ajar.</p>
+        </div>
+        <button 
+          onClick={() => setIsModalOpen(true)}
+          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all"
+        >
+          <Wand2 className="w-4 h-4" /> Buat Dokumen Baru
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {docs.map((doc, idx) => (
+          <div key={doc.id || `doc-${idx}`} className="glass rounded-3xl p-8 flex flex-col border border-white/5">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400">
+                <FileText className="w-6 h-6" />
+              </div>
+              <span className="px-3 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 text-[10px] font-bold uppercase tracking-wider border border-cyan-500/20">
+                {doc.type}
+              </span>
+            </div>
+            <div className="prose prose-invert prose-sm max-w-none line-clamp-[10] mb-6 overflow-hidden">
+              <ReactMarkdown>{doc.content}</ReactMarkdown>
+            </div>
+            <div className="mt-auto flex gap-2 pt-4 border-t border-white/5">
+              <button 
+                onClick={() => setSelectedDoc(doc)}
+                className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-xs font-bold transition-colors"
+              >
+                Lihat Detail
+              </button>
+              <div className="flex gap-1">
+                <button 
+                  onClick={() => handleDownload(doc, 'pdf')}
+                  title="Download PDF"
+                  className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-rose-400 hover:text-rose-300 transition-colors"
+                >
+                  <FileText className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={() => handleDownload(doc, 'doc')}
+                  title="Download DOC"
+                  className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  <FileIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {docs.length === 0 && (
+          <div className="col-span-full py-32 glass rounded-3xl flex flex-col items-center justify-center text-slate-500 gap-4 border-dashed border-2 border-white/5">
+            <Sparkles className="w-12 h-12 opacity-10" />
+            <p className="italic text-center px-4">Belum ada dokumen AI. Klik "Buat Dokumen Baru" untuk memulai.</p>
+          </div>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {selectedDoc && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setSelectedDoc(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-4xl max-h-[90vh] glass rounded-[2.5rem] p-10 shadow-2xl relative z-10 flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-2xl font-bold">{selectedDoc.type}</h3>
+                  <p className="text-slate-400 text-sm">Dibuat pada {new Date(selectedDoc.created_at).toLocaleString()}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => handleDownload(selectedDoc, 'pdf')}
+                    className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl border border-rose-500/20 text-rose-400 transition-colors text-xs font-bold"
+                  >
+                    <FileText className="w-4 h-4" /> PDF
+                  </button>
+                  <button 
+                    onClick={() => handleDownload(selectedDoc, 'doc')}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 rounded-xl border border-blue-500/20 text-blue-400 transition-colors text-xs font-bold"
+                  >
+                    <FileIcon className="w-4 h-4" /> DOC
+                  </button>
+                  <button onClick={() => setSelectedDoc(null)} className="p-3 hover:bg-white/10 rounded-2xl transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar">
+                <div className="prose prose-invert prose-lg max-w-none bg-white/5 p-10 rounded-[2rem] border border-white/10">
+                  <ReactMarkdown>{selectedDoc.content}</ReactMarkdown>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setIsModalOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-full max-w-2xl glass rounded-[2.5rem] p-10 shadow-2xl relative z-10"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <h3 className="text-2xl font-bold">AI Document Generator</h3>
+                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+              </div>
+              <form onSubmit={handleGenerate} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Jenis Dokumen</label>
+                    <select 
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:border-purple-500/50 transition-colors text-sm"
+                      value={params.type}
+                      onChange={(e: any) => setParams({...params, type: e.target.value})}
+                    >
+                      <option value="RPP (Rencana Pelaksanaan Pembelajaran)" className="bg-slate-900">RPP (Kurikulum Merdeka)</option>
+                      <option value="Modul Ajar" className="bg-slate-900">Modul Ajar</option>
+                      <option value="Materi Pembelajaran" className="bg-slate-900">Materi Pembelajaran</option>
+                      <option value="Lembar Kerja Siswa (LKS)" className="bg-slate-900">Lembar Kerja Siswa (LKS)</option>
+                    </select>
+                  </div>
+                  <Input label="Topik / Judul Materi" placeholder="Contoh: Trigonometri Dasar" value={params.topic} onChange={(e: any) => setParams({...params, topic: e.target.value})} required />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Tujuan Pembelajaran</label>
+                  <textarea 
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:border-purple-500/50 transition-colors text-sm min-h-[100px]"
+                    placeholder="Siswa dapat memahami konsep sin, cos, tan..."
+                    value={params.objectives}
+                    onChange={(e: any) => setParams({...params, objectives: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Input label="Kelas" placeholder="X IPA 1" value={params.className} onChange={(e: any) => setParams({...params, className: e.target.value})} required />
+                  <Input label="Durasi" placeholder="2 x 45 Menit" value={params.duration} onChange={(e: any) => setParams({...params, duration: e.target.value})} required />
+                </div>
+                <button 
+                  disabled={generating}
+                  className="w-full py-4 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
+                >
+                  {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
+                  {generating ? 'Sedang Merangkai Kata...' : 'Generate dengan AI'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
