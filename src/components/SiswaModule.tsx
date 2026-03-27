@@ -8,8 +8,9 @@ import {
 import { cn } from '../utils';
 import { Input } from './Common';
 
-export default function SiswaModule({ token, addToast, refreshStats, students, fetchStudents }: { token: string, addToast: any, refreshStats: any, students: any[], fetchStudents: any }) {
+export default function SiswaModule({ token, addToast, refreshStats, students, setStudents, fetchStudents }: { token: string, addToast: any, refreshStats: any, students: any[], setStudents: any, fetchStudents: any }) {
   const [search, setSearch] = useState('');
+  const [selectedClass, setSelectedClass] = useState('Semua Kelas');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -59,7 +60,7 @@ export default function SiswaModule({ token, addToast, refreshStats, students, f
 
         if (res.ok) {
           addToast(`${formattedData.length} siswa berhasil diimpor`);
-          fetchStudents();
+          setStudents((prev: any[]) => [...formattedData.map((s: any) => ({ ...s, nama: s.name, kelas: s.className })), ...prev]);
           refreshStats();
         } else {
           const errData = await res.json();
@@ -98,7 +99,7 @@ export default function SiswaModule({ token, addToast, refreshStats, students, f
       addToast('Siswa berhasil ditambahkan');
       setIsModalOpen(false);
       setNewStudent({ nis: '', name: '', className: 'X IPA 1' });
-      fetchStudents();
+      setStudents((prev: any[]) => [{ nis: String(newStudent.nis).split('.')[0], nama: newStudent.name, kelas: newStudent.className }, ...prev]);
       refreshStats();
     } else {
       addToast('Gagal menambahkan siswa (NIS mungkin sudah ada)', 'error');
@@ -115,8 +116,8 @@ export default function SiswaModule({ token, addToast, refreshStats, students, f
     if (res.ok) {
       addToast('Data siswa berhasil diperbarui');
       setIsEditModalOpen(false);
+      setStudents((prev: any[]) => prev.map(s => s.nis === editingStudent.nis ? { ...s, nama: editingStudent.name, kelas: editingStudent.class } : s));
       setEditingStudent(null);
-      fetchStudents();
     } else {
       addToast('Gagal memperbarui data siswa', 'error');
     }
@@ -132,8 +133,8 @@ export default function SiswaModule({ token, addToast, refreshStats, students, f
     if (res.ok) {
       addToast('Siswa berhasil dihapus');
       setIsDeleteModalOpen(false);
+      setStudents((prev: any[]) => prev.filter(s => s.nis !== studentToDelete));
       setStudentToDelete(null);
-      fetchStudents();
       refreshStats();
     } else {
       addToast('Gagal menghapus siswa', 'error');
@@ -141,22 +142,46 @@ export default function SiswaModule({ token, addToast, refreshStats, students, f
     setLoading(false);
   };
 
-  const filtered = students.filter(s => 
-    (s.nama?.toLowerCase() || '').includes(search.toLowerCase()) || 
-    (s.nis?.toString() || '').includes(search)
-  );
+  const filtered = React.useMemo(() => {
+    return students.filter(s => 
+      ((s?.nama?.toLowerCase() || '').includes(search.toLowerCase()) || 
+      (s?.nis?.toString() || '').includes(search)) &&
+      (selectedClass === 'Semua Kelas' || s.kelas === selectedClass)
+    );
+  }, [students, search, selectedClass]);
+
+  const uniqueClasses = Array.from(new Set(students.map(s => s.kelas).filter(Boolean))).sort();
+  const defaultClasses = ['X IPA 1', 'X IPA 2', 'X IPS 1', 'XI IPA 1', 'XI IPS 1', 'XII IPA 1'];
+  const allClassSuggestions = Array.from(new Set([...defaultClasses, ...uniqueClasses])).sort();
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input 
-            placeholder="Cari nama atau NIS..." 
-            className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3 focus:outline-none focus:border-purple-500/50 text-sm"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+        <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <input 
+              placeholder="Cari nama atau NIS..." 
+              className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3 focus:outline-none focus:border-purple-500/50 text-sm"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="relative w-full md:w-48">
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+              <Users className="w-4 h-4 text-slate-500" />
+            </div>
+            <select 
+              className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3 focus:outline-none focus:border-purple-500/50 text-sm appearance-none"
+              value={selectedClass}
+              onChange={e => setSelectedClass(e.target.value)}
+            >
+              <option value="Semua Kelas" className="bg-slate-900">Semua Kelas</option>
+              {allClassSuggestions.map(c => (
+                <option key={c} value={c} className="bg-slate-900">{c}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
           <input 
@@ -200,48 +225,49 @@ export default function SiswaModule({ token, addToast, refreshStats, students, f
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {filtered.map(s => (
-                <tr key={s.id} className="hover:bg-white/5 transition-colors group">
-                  <td className="px-8 py-5 font-mono text-xs text-slate-400">{String(s.nis).split('.')[0]}</td>
-                  <td className="px-8 py-5 font-semibold text-sm">{s.nama}</td>
-                  <td className="px-8 py-5">
-                    <div className="flex items-center">
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 uppercase tracking-widest">
-                        {s.kelas}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-8 py-5 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => {
-                          setEditingStudent({
-                            nis: s.nis,
-                            name: s.nama,
-                            class: s.kelas
-                          });
-                          setIsEditModalOpen(true);
-                        }}
-                        className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors"
-                        title="Edit Siswa"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setStudentToDelete(s.nis);
-                          setIsDeleteModalOpen(true);
-                        }}
-                        className="p-2 hover:bg-rose-500/20 rounded-lg text-slate-400 hover:text-rose-400 transition-colors"
-                        title="Hapus Siswa"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
+              {filtered.length > 0 ? (
+                filtered.map((s, idx) => (
+                  <tr key={s.id || s.nis || idx} className="hover:bg-white/5 transition-colors group">
+                    <td className="px-8 py-5 font-mono text-xs text-slate-400">{String(s?.nis || '').split('.')[0]}</td>
+                    <td className="px-8 py-5 font-semibold text-sm">{s?.nama || 'Unknown'}</td>
+                    <td className="px-8 py-5">
+                      <div className="flex items-center">
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 uppercase tracking-widest">
+                          {s?.kelas || '-'}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-5 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => {
+                            setEditingStudent({
+                              nis: s.nis,
+                              name: s.nama,
+                              class: s.kelas
+                            });
+                            setIsEditModalOpen(true);
+                          }}
+                          className="p-2 hover:bg-white/10 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors"
+                          title="Edit Siswa"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setStudentToDelete(s.nis);
+                            setIsDeleteModalOpen(true);
+                          }}
+                          className="p-2 hover:bg-rose-500/20 rounded-lg text-slate-400 hover:text-rose-400 transition-colors"
+                          title="Hapus Siswa"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
                 <tr>
                   <td colSpan={4} className="px-8 py-24 text-center">
                     <div className="flex flex-col items-center gap-4 text-slate-500">
@@ -296,15 +322,19 @@ export default function SiswaModule({ token, addToast, refreshStats, students, f
                 />
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Kelas</label>
-                  <select 
+                  <input 
+                    list="class-suggestions-edit"
                     className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:border-purple-500/50 transition-colors text-sm"
                     value={editingStudent.class}
                     onChange={(e: any) => setEditingStudent({...editingStudent, class: e.target.value})}
-                  >
-                    {['X IPA 1', 'X IPA 2', 'X IPS 1', 'XI IPA 1', 'XI IPS 1', 'XII IPA 1'].map(c => (
-                      <option key={c} value={c} className="bg-slate-900">{c}</option>
+                    placeholder="Contoh: X IPA 1"
+                    required
+                  />
+                  <datalist id="class-suggestions-edit">
+                    {allClassSuggestions.map(c => (
+                      <option key={c} value={c} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <button 
                   type="submit"
@@ -379,15 +409,19 @@ export default function SiswaModule({ token, addToast, refreshStats, students, f
                 <Input label="Nama Lengkap" placeholder="Budi Santoso" value={newStudent.name} onChange={(e: any) => setNewStudent({...newStudent, name: e.target.value})} required />
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Kelas</label>
-                  <select 
+                  <input 
+                    list="class-suggestions-add"
                     className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:border-purple-500/50 transition-colors text-sm"
                     value={newStudent.className}
                     onChange={(e: any) => setNewStudent({...newStudent, className: e.target.value})}
-                  >
-                    {['X IPA 1', 'X IPA 2', 'X IPS 1', 'XI IPA 1', 'XI IPS 1', 'XII IPA 1'].map(c => (
-                      <option key={c} value={c} className="bg-slate-900">{c}</option>
+                    placeholder="Contoh: X IPA 1"
+                    required
+                  />
+                  <datalist id="class-suggestions-add">
+                    {allClassSuggestions.map(c => (
+                      <option key={c} value={c} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <button className="w-full py-4 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all mt-4">
                   Simpan Data Siswa

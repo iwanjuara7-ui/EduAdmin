@@ -10,6 +10,8 @@ import { Input } from './Common';
 
 export default function ERaportModule({ token, addToast, students, fetchStudents }: { token: string, addToast: any, students: any[], fetchStudents: any }) {
   const [grades, setGrades] = useState<any[]>([]);
+  const [selectedClass, setSelectedClass] = useState('Semua Kelas');
+  const [modalSelectedClass, setModalSelectedClass] = useState('Semua Kelas');
   const [kkm, setKkm] = useState<number>(75);
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -68,13 +70,14 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
         body: JSON.stringify({ ...newGrade, score: finalScore, subject: user.subject })
       });
       if (res.ok) {
+        const data = await res.json();
         addToast('Nilai berhasil disimpan');
         setIsModalOpen(false);
         setNewGrade({ 
           student_nis: '', score: 0, semester: 'Ganjil',
           tugas1: 0, tugas2: 0, formatif1: 0, formatif2: 0, pts: 0, uas: 0 
         });
-        fetchData();
+        setGrades(prev => [data, ...prev]);
       }
     } catch (e) {
       addToast('Gagal menyimpan nilai', 'error');
@@ -115,8 +118,8 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
       if (res.ok) {
         addToast('Nilai berhasil dihapus');
         setIsDeleteModalOpen(false);
+        setGrades(prev => prev.filter(g => g.id !== gradeToDelete));
         setGradeToDelete(null);
-        fetchData();
       }
     } catch (e) {
       addToast('Gagal menghapus nilai', 'error');
@@ -151,6 +154,17 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
     addToast('Data berhasil diekspor ke Excel');
   };
 
+  const uniqueClasses = Array.from(new Set(students.map(s => s.kelas).filter(Boolean))).sort();
+
+  const filteredGrades = grades.filter(g => {
+    const student = students.find(s => s.nis === g.student_nis);
+    return selectedClass === 'Semua Kelas' || student?.kelas === selectedClass;
+  });
+
+  const filteredStudentsForModal = students.filter(s => 
+    modalSelectedClass === 'Semua Kelas' || s.kelas === modalSelectedClass
+  );
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -177,6 +191,24 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
           >
             <Plus className="w-4 h-4" /> Input Nilai Manual
           </button>
+        </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="relative w-full md:w-64">
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+            <Users className="w-4 h-4 text-slate-500" />
+          </div>
+          <select 
+            className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3 focus:outline-none focus:border-purple-500/50 text-sm appearance-none"
+            value={selectedClass}
+            onChange={e => setSelectedClass(e.target.value)}
+          >
+            <option value="Semua Kelas" className="bg-slate-900">Semua Kelas</option>
+            {uniqueClasses.map(c => (
+              <option key={c} value={c} className="bg-slate-900">{c}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -222,42 +254,50 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {grades.map(g => (
-                <tr key={g.id} className="hover:bg-white/5 transition-colors group">
-                  <td className="px-6 py-5">
-                    <div className="font-semibold text-sm">{g.student_name}</div>
-                    <div className="font-mono text-[10px] text-slate-500">{String(g.student_nis).split('.')[0]} • {g.semester}</div>
-                  </td>
-                  <td className="px-4 py-5 text-xs text-slate-400">{g.tugas1}</td>
-                  <td className="px-4 py-5 text-xs text-slate-400">{g.tugas2}</td>
-                  <td className="px-4 py-5 text-xs text-slate-400">{g.formatif1}</td>
-                  <td className="px-4 py-5 text-xs text-slate-400">{g.formatif2}</td>
-                  <td className="px-4 py-5 text-xs text-slate-400">{g.pts}</td>
-                  <td className="px-4 py-5 text-xs text-slate-400">{g.uas}</td>
-                  <td className="px-6 py-5 font-bold text-lg text-white">{g.score}</td>
-                  <td className="px-6 py-5">
-                    <span className={cn(
-                      "px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border",
-                      g.score >= kkm 
-                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
-                        : "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                    )}>
-                      {g.score >= kkm ? 'Tuntas' : 'Remedial'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    <button 
-                      onClick={() => {
-                        setGradeToDelete(g.id);
-                        setIsDeleteModalOpen(true);
-                      }}
-                      className="p-2 hover:bg-rose-500/20 rounded-lg text-slate-400 hover:text-rose-400 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+              {filteredGrades.length > 0 ? (
+                filteredGrades.map((g, idx) => (
+                  <tr key={g.id || idx} className="hover:bg-white/5 transition-colors group">
+                    <td className="px-6 py-5">
+                      <div className="font-semibold text-sm">{g.student_name}</div>
+                      <div className="font-mono text-[10px] text-slate-500">{String(g.student_nis).split('.')[0]} • {g.semester}</div>
+                    </td>
+                    <td className="px-4 py-5 text-xs text-slate-400">{g.tugas1}</td>
+                    <td className="px-4 py-5 text-xs text-slate-400">{g.tugas2}</td>
+                    <td className="px-4 py-5 text-xs text-slate-400">{g.formatif1}</td>
+                    <td className="px-4 py-5 text-xs text-slate-400">{g.formatif2}</td>
+                    <td className="px-4 py-5 text-xs text-slate-400">{g.pts}</td>
+                    <td className="px-4 py-5 text-xs text-slate-400">{g.uas}</td>
+                    <td className="px-6 py-5 font-bold text-lg text-white">{g.score}</td>
+                    <td className="px-6 py-5">
+                      <span className={cn(
+                        "px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border",
+                        g.score >= kkm 
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                          : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                      )}>
+                        {g.score >= kkm ? 'Tuntas' : 'Remedial'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-5 text-right">
+                      <button 
+                        onClick={() => {
+                          setGradeToDelete(g.id);
+                          setIsDeleteModalOpen(true);
+                        }}
+                        className="p-2 hover:bg-rose-500/20 rounded-lg text-slate-400 hover:text-rose-400 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={10} className="px-6 py-10 text-center text-slate-500 italic text-sm">
+                    Belum ada data nilai untuk kelas ini.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -285,6 +325,19 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
               <form onSubmit={handleAddGrade} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Pilih Kelas</label>
+                    <select 
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:border-purple-500/50 transition-colors text-sm"
+                      value={modalSelectedClass}
+                      onChange={(e: any) => setModalSelectedClass(e.target.value)}
+                    >
+                      <option value="Semua Kelas" className="bg-slate-900">Semua Kelas</option>
+                      {uniqueClasses.map(c => (
+                        <option key={c} value={c} className="bg-slate-900">{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Pilih Siswa</label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:border-purple-500/50 transition-colors text-sm"
@@ -293,8 +346,8 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
                       required
                     >
                       <option value="" className="bg-slate-900">-- Pilih Siswa --</option>
-                      {students.map(s => (
-                        <option key={s.nis} value={s.nis} className="bg-slate-900">{s.nama} ({String(s.nis).split('.')[0]})</option>
+                      {(filteredStudentsForModal || []).map((s, idx) => (
+                        <option key={s?.nis || idx} value={s?.nis} className="bg-slate-900">{s?.nama || 'Unknown'} ({String(s?.nis || '').split('.')[0]})</option>
                       ))}
                     </select>
                   </div>
@@ -312,12 +365,12 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <Input label="Tugas 1" type="number" value={newGrade.tugas1} onChange={(e: any) => setNewGrade({...newGrade, tugas1: Number(e.target.value)})} />
-                  <Input label="Tugas 2" type="number" value={newGrade.tugas2} onChange={(e: any) => setNewGrade({...newGrade, tugas2: Number(e.target.value)})} />
-                  <Input label="Formatif 1" type="number" value={newGrade.formatif1} onChange={(e: any) => setNewGrade({...newGrade, formatif1: Number(e.target.value)})} />
-                  <Input label="Formatif 2" type="number" value={newGrade.formatif2} onChange={(e: any) => setNewGrade({...newGrade, formatif2: Number(e.target.value)})} />
-                  <Input label="Nilai PTS" type="number" value={newGrade.pts} onChange={(e: any) => setNewGrade({...newGrade, pts: Number(e.target.value)})} />
-                  <Input label="Nilai UAS" type="number" value={newGrade.uas} onChange={(e: any) => setNewGrade({...newGrade, uas: Number(e.target.value)})} />
+                  <Input label="Tugas 1" type="number" min="0" max="100" value={newGrade.tugas1} onChange={(e: any) => setNewGrade({...newGrade, tugas1: Number(e.target.value)})} />
+                  <Input label="Tugas 2" type="number" min="0" max="100" value={newGrade.tugas2} onChange={(e: any) => setNewGrade({...newGrade, tugas2: Number(e.target.value)})} />
+                  <Input label="Formatif 1" type="number" min="0" max="100" value={newGrade.formatif1} onChange={(e: any) => setNewGrade({...newGrade, formatif1: Number(e.target.value)})} />
+                  <Input label="Formatif 2" type="number" min="0" max="100" value={newGrade.formatif2} onChange={(e: any) => setNewGrade({...newGrade, formatif2: Number(e.target.value)})} />
+                  <Input label="Nilai PTS" type="number" min="0" max="100" value={newGrade.pts} onChange={(e: any) => setNewGrade({...newGrade, pts: Number(e.target.value)})} />
+                  <Input label="Nilai UAS" type="number" min="0" max="100" value={newGrade.uas} onChange={(e: any) => setNewGrade({...newGrade, uas: Number(e.target.value)})} />
                 </div>
 
                 <div className="p-4 bg-purple-500/10 rounded-2xl border border-purple-500/20">
@@ -351,7 +404,7 @@ export default function ERaportModule({ token, addToast, students, fetchStudents
             >
               <h3 className="text-xl font-bold mb-6">Atur KKM {user.subject}</h3>
               <form onSubmit={handleUpdateKkm} className="space-y-6">
-                <Input label="Nilai KKM" type="number" value={kkm} onChange={(e: any) => setKkm(Number(e.target.value))} required />
+                <Input label="Nilai KKM" type="number" min="0" max="100" value={kkm} onChange={(e: any) => setKkm(Number(e.target.value))} required />
                 <button className="w-full py-3 bg-white/10 hover:bg-white/20 rounded-xl font-bold transition-all">
                   Perbarui KKM
                 </button>

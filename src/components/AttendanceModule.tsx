@@ -8,6 +8,7 @@ import { cn } from '../utils';
 
 export default function AttendanceModule({ token, addToast, students }: { token: string, addToast: any, students: any[] }) {
   const [viewMode, setViewMode] = useState<'daily' | 'recap'>('daily');
+  const [selectedClass, setSelectedClass] = useState('Semua Kelas');
   const [attendance, setAttendance] = useState<any[]>([]);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
@@ -139,10 +140,21 @@ export default function AttendanceModule({ token, addToast, students }: { token:
     return attendance.find(a => a.student_nis === nis)?.status || '';
   };
 
-  const filteredRecap = recapData.filter(s => 
-    (s.nama?.toLowerCase() || '').includes(searchRecap.toLowerCase()) || 
-    (s.nis?.toString() || '').includes(searchRecap)
-  );
+  const uniqueClasses = Array.from(new Set(students.map(s => s.kelas).filter(Boolean))).sort();
+
+  const filteredStudents = React.useMemo(() => {
+    return students.filter(s => 
+      selectedClass === 'Semua Kelas' || s.kelas === selectedClass
+    );
+  }, [students, selectedClass]);
+
+  const filteredRecap = React.useMemo(() => {
+    return recapData.filter(s => 
+      ((s.nama?.toLowerCase() || '').includes(searchRecap.toLowerCase()) || 
+      (s.nis?.toString() || '').includes(searchRecap)) &&
+      (selectedClass === 'Semua Kelas' || s.kelas === selectedClass)
+    );
+  }, [recapData, searchRecap, selectedClass]);
 
   return (
     <div className="space-y-8">
@@ -176,29 +188,48 @@ export default function AttendanceModule({ token, addToast, students }: { token:
 
       {viewMode === 'daily' ? (
         <>
-          <div className="flex flex-wrap items-center gap-4 justify-end">
-            <div className="flex items-center gap-2 bg-white/5 p-1 rounded-xl border border-white/10">
-              <Calendar className="w-4 h-4 ml-3 text-slate-500" />
-              <input 
-                type="date" 
-                value={date} 
-                onChange={(e) => setDate(e.target.value)}
-                className="bg-transparent border-none px-3 py-2 text-sm focus:outline-none text-white"
-              />
+          <div className="flex flex-wrap items-center gap-4 justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 bg-white/5 p-1 rounded-xl border border-white/10">
+                <Calendar className="w-4 h-4 ml-3 text-slate-500" />
+                <input 
+                  type="date" 
+                  value={date} 
+                  onChange={(e) => setDate(e.target.value)}
+                  className="bg-transparent border-none px-3 py-2 text-sm focus:outline-none text-white"
+                />
+              </div>
+              <div className="relative w-48">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <Users className="w-4 h-4 text-slate-500" />
+                </div>
+                <select 
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-2.5 focus:outline-none focus:border-purple-500/50 text-sm appearance-none"
+                  value={selectedClass}
+                  onChange={e => setSelectedClass(e.target.value)}
+                >
+                  <option value="Semua Kelas" className="bg-slate-900">Semua Kelas</option>
+                  {uniqueClasses.map(c => (
+                    <option key={c} value={c} className="bg-slate-900">{c}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <button 
-              onClick={markAllPresent}
-              className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/10 font-bold text-sm transition-all text-purple-400 flex items-center gap-2"
-            >
-              <CheckCircle2 className="w-4 h-4" /> Hadir Semua
-            </button>
-            <button 
-              onClick={handleSave}
-              disabled={loading}
-              className="px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all disabled:opacity-50 flex items-center gap-2"
-            >
-              <ClipboardList className="w-4 h-4" /> {loading ? 'Menyimpan...' : 'Simpan Absensi'}
-            </button>
+            <div className="flex gap-3">
+              <button 
+                onClick={markAllPresent}
+                className="px-6 py-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/10 font-bold text-sm transition-all text-purple-400 flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" /> Hadir Semua
+              </button>
+              <button 
+                onClick={handleSave}
+                disabled={loading}
+                className="px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                <ClipboardList className="w-4 h-4" /> {loading ? 'Menyimpan...' : 'Simpan Absensi'}
+              </button>
+            </div>
           </div>
 
           <div className="glass rounded-3xl overflow-hidden border border-white/10">
@@ -213,13 +244,13 @@ export default function AttendanceModule({ token, addToast, students }: { token:
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {students.map((student) => {
-                    const currentStatus = getStatus(student.nis);
+                  {(filteredStudents || []).map((student, idx) => {
+                    const currentStatus = getStatus(student?.nis);
                     return (
-                      <tr key={student.nis} className="hover:bg-white/[0.02] transition-colors group">
-                        <td className="px-8 py-5 text-sm font-mono text-slate-400">{String(student.nis).split('.')[0]}</td>
-                        <td className="px-8 py-5 text-sm font-semibold">{student.nama}</td>
-                        <td className="px-8 py-5 text-sm text-slate-400">{student.kelas}</td>
+                      <tr key={student?.nis || idx} className="hover:bg-white/[0.02] transition-colors group">
+                        <td className="px-8 py-5 text-sm font-mono text-slate-400">{String(student?.nis || '').split('.')[0]}</td>
+                        <td className="px-8 py-5 text-sm font-semibold">{student?.nama || 'Unknown'}</td>
+                        <td className="px-8 py-5 text-sm text-slate-400">{student?.kelas || '-'}</td>
                         <td className="px-8 py-5">
                           <div className="flex justify-center gap-2">
                             {['Hadir', 'Izin', 'Sakit', 'Alpa'].map((status) => (
@@ -278,6 +309,22 @@ export default function AttendanceModule({ token, addToast, students }: { token:
                 >
                   Semester
                 </button>
+              </div>
+
+              <div className="relative w-48">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <Users className="w-4 h-4 text-slate-500" />
+                </div>
+                <select 
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-2 focus:outline-none focus:border-purple-500/50 text-sm appearance-none"
+                  value={selectedClass}
+                  onChange={e => setSelectedClass(e.target.value)}
+                >
+                  <option value="Semua Kelas" className="bg-slate-900">Semua Kelas</option>
+                  {uniqueClasses.map(c => (
+                    <option key={c} value={c} className="bg-slate-900">{c}</option>
+                  ))}
+                </select>
               </div>
 
               {recapType === 'monthly' ? (

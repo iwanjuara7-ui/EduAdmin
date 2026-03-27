@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { User, Shield, Bell, Database, Globe, LogOut, Camera, Trash2, Save, Loader2 } from 'lucide-react';
 import { Input } from './Common';
 
-export default function SettingsModule({ user, setUser, token, addToast, onLogout }: { user: any, setUser: any, token: string, addToast: any, onLogout: () => void }) {
+export default function SettingsModule({ user, setUser, setToken, token, addToast, onLogout }: { user: any, setUser: any, setToken: any, token: string, addToast: any, onLogout: () => void }) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: user?.name || '',
@@ -26,10 +26,12 @@ export default function SettingsModule({ user, setUser, token, addToast, onLogou
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        setToken(data.token);
         localStorage.setItem('token', data.token);
         addToast('Profil berhasil diperbarui');
       } else {
-        addToast('Gagal memperbarui profil', 'error');
+        const errorData = await res.json();
+        addToast(errorData.error || 'Gagal memperbarui profil', 'error');
       }
     } catch (e) {
       addToast('Terjadi kesalahan', 'error');
@@ -58,6 +60,7 @@ export default function SettingsModule({ user, setUser, token, addToast, onLogou
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        setToken(data.token);
         localStorage.setItem('token', data.token);
         setFormData(prev => ({ ...prev, photo_url: data.user.photo_url }));
         addToast('Foto profil berhasil diunggah');
@@ -90,7 +93,7 @@ export default function SettingsModule({ user, setUser, token, addToast, onLogou
               <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center shadow-xl mb-4 p-1 relative group">
                 <div className="w-full h-full rounded-full bg-[#0f172a] flex items-center justify-center overflow-hidden">
                   {formData.photo_url ? (
-                    <img src={formData.photo_url} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={formData.photo_url || null} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   ) : (
                     <User className="w-10 h-10 text-slate-300" />
                   )}

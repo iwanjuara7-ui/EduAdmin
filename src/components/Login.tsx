@@ -1,32 +1,56 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, AlertCircle } from 'lucide-react';
 import { cn } from '../utils';
 import { Input } from './Common';
 
 export default function Login({ onLogin }: any) {
   const [isRegister, setIsRegister] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({ email: '', password: '', name: '', subject: 'Matematika' });
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
     try {
-      const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const data = await res.json();
-      if (data.token) {
-        onLogin(data.token, data.user);
-      } else if (isRegister && !data.error) {
+      if (isRegister) {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password,
+            name: formData.name,
+            subject: formData.subject
+          })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Registrasi gagal');
+        
+        setError('Registrasi berhasil! Silakan masuk.');
         setIsRegister(false);
+      } else {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password
+          })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login gagal');
+        
+        if (data.token && data.user) {
+          onLogin(data.token, data.user);
+        }
       }
-    } catch (e) {
-      console.error(e);
+    } catch (err: any) {
+      setError(err.message || 'Gagal memproses permintaan. Silakan coba lagi.');
     } finally {
       setLoading(false);
     }
@@ -54,6 +78,12 @@ export default function Login({ onLogin }: any) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
+          {error && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2 text-rose-400 text-xs">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
           {isRegister && (
             <>
               <Input label="Nama Lengkap" placeholder="Dr. Jane Doe" value={formData.name} onChange={(e: any) => setFormData({...formData, name: e.target.value})} required />

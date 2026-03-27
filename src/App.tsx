@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, Users, BookOpen, FileText, ClipboardList, 
   Sparkles, HelpCircle, Settings, LogOut, Menu, User, Bell,
-  CheckCircle2, AlertCircle
+  CheckCircle2, AlertCircle, ArrowUp
 } from 'lucide-react';
 import { cn } from './utils';
+import { useRef } from 'react';
 
 // Components
 import Login from './components/Login';
@@ -29,6 +30,10 @@ export default function App() {
   const [stats, setStats] = useState({ students: 0, agenda: 0, reports: 0, eraport: 0 });
   const [toasts, setToasts] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
+  const [aiDocs, setAiDocs] = useState<any[]>([]);
+  const [aiQuestions, setAiQuestions] = useState<any[]>([]);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Initial Data Fetch
   useEffect(() => {
@@ -39,58 +44,76 @@ export default function App() {
       // Fetch initial data once
       fetchStats();
       fetchStudents();
+      fetchAIData();
     }
   }, [token]);
 
-  const addToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const fetchAIData = React.useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/ai-documents', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiDocs(data.filter((d: any) => !d.type.includes('Soal')));
+        setAiQuestions(data.filter((d: any) => d.type.includes('Soal')));
+      }
+    } catch (e) {
+      console.error('Fetch AI data error:', e);
+    }
+  }, [token]);
+
+  const addToast = React.useCallback((message: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
-  };
+  }, []);
 
-  const fetchStudents = async () => {
+  const fetchStudents = React.useCallback(async () => {
     if (!token) return;
     try {
       const res = await fetch('/api/students', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const text = await res.text();
-        if (text) {
-          const data = JSON.parse(text);
-          setStudents(data);
-        } else {
-          setStudents([]);
-        }
+        const data = await res.json();
+        setStudents(Array.isArray(data) ? data : []);
       }
     } catch (e) {
       console.error('Fetch students error:', e);
     }
-  };
+  }, [token]);
 
-  const fetchStats = async () => {
+  const fetchStats = React.useCallback(async () => {
     if (!token) return;
     try {
       const res = await fetch('/api/stats', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const text = await res.text();
-        if (text) {
-          const data = JSON.parse(text);
-          setStats(data);
-        }
+        const data = await res.json();
+        setStats(data);
       }
     } catch (e) {
       console.error('Fetch stats error:', e);
     }
-  };
+  }, [token]);
 
   const handleLogout = () => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const scrollTop = e.currentTarget.scrollTop;
+    setShowScrollTop(scrollTop > 400);
+  };
+
+  const scrollToTop = () => {
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   if (!token) {
@@ -165,7 +188,7 @@ export default function App() {
               </div>
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-white/10 to-white/5 border border-white/20 flex items-center justify-center shadow-inner overflow-hidden">
                 {user?.photo_url ? (
-                  <img src={user.photo_url} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <img src={user.photo_url || null} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 ) : (
                   <User className="w-5 h-5 text-slate-300" />
                 )}
@@ -175,7 +198,11 @@ export default function App() {
         </header>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-transparent">
+        <div 
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-transparent"
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={currentView}
@@ -186,17 +213,17 @@ export default function App() {
               className="max-w-7xl mx-auto"
             >
               {currentView === 'dashboard' && <Dashboard stats={stats} user={user} setView={setCurrentView} />}
-              {currentView === 'siswa' && <SiswaModule token={token!} addToast={addToast} refreshStats={fetchStats} students={students} fetchStudents={fetchStudents} />}
+              {currentView === 'siswa' && <SiswaModule token={token!} addToast={addToast} refreshStats={fetchStats} students={students} setStudents={setStudents} fetchStudents={fetchStudents} />}
               {currentView === 'absensi' && <AttendanceModule token={token!} addToast={addToast} students={students} />}
               {currentView === 'agenda' && <DocumentModule type="agenda" token={token!} addToast={addToast} />}
               {currentView === 'laporan' && <DocumentModule type="report" token={token!} addToast={addToast} />}
               {currentView === 'eraport' && <ERaportModule token={token!} addToast={addToast} students={students} fetchStudents={fetchStudents} />}
-              {currentView === 'ai-doc' && <AIDocModule addToast={addToast} />}
-              {currentView === 'ai-soal' && <AISoalModule addToast={addToast} />}
+              {currentView === 'ai-doc' && <AIDocModule token={token!} addToast={addToast} docs={aiDocs} setDocs={setAiDocs} />}
+              {currentView === 'ai-soal' && <AISoalModule token={token!} addToast={addToast} questions={aiQuestions} setQuestions={setAiQuestions} />}
               {currentView === 'settings' && <SettingsModule user={user} setUser={(u: any) => {
                 setUser(u);
                 localStorage.setItem('user', JSON.stringify(u));
-              }} token={token!} addToast={addToast} onLogout={handleLogout} />}
+              }} setToken={setToken} token={token!} addToast={addToast} onLogout={handleLogout} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -204,6 +231,17 @@ export default function App() {
         {/* Toast Notifications */}
         <div className="fixed bottom-8 right-8 z-[100] space-y-3">
           <AnimatePresence>
+            {showScrollTop && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.5, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.5, y: 20 }}
+                onClick={scrollToTop}
+                className="w-12 h-12 rounded-full bg-purple-500 text-white flex items-center justify-center shadow-lg shadow-purple-500/30 hover:bg-purple-600 transition-all mb-4"
+              >
+                <ArrowUp className="w-6 h-6" />
+              </motion.button>
+            )}
             {toasts.map(toast => (
               <motion.div
                 key={toast.id}

@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Plus, Upload, FileText, ClipboardList, Calendar, 
-  Download, FileUp, X 
+  Plus, FileText, ClipboardList, Calendar, 
+  Download, X 
 } from 'lucide-react';
 import { cn } from '../utils';
 import { Input } from './Common';
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 
 export default function DocumentModule({ type, token, addToast }: { type: 'agenda' | 'report', token: string, addToast: any }) {
   const [docs, setDocs] = useState<any[]>([]);
@@ -17,7 +19,6 @@ export default function DocumentModule({ type, token, addToast }: { type: 'agend
     content: '',
     reportType: 'Piket' 
   });
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDocs = async () => {
     const endpoint = type === 'agenda' ? '/api/agenda' : '/api/reports';
@@ -28,30 +29,65 @@ export default function DocumentModule({ type, token, addToast }: { type: 'agend
 
   useEffect(() => { fetchDocs(); }, [type]);
 
-  const handleUpload = async (e: any) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleDownloadPDF = async () => {
+    if (docs.length === 0) return addToast('Tidak ada data untuk diunduh', 'error');
 
+    const contentElement = document.createElement('div');
+    contentElement.style.padding = '40px';
+    contentElement.style.width = '800px';
+    contentElement.style.background = 'white';
+    contentElement.style.color = 'black';
+    contentElement.style.fontFamily = 'Arial, sans-serif';
+
+    const title = type === 'agenda' ? 'AGENDA GURU' : 'LAPORAN ADMINISTRASI';
+    
+    contentElement.innerHTML = `
+      <div style="text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 10px;">
+        <h1 style="margin: 0; font-size: 24px;">${title}</h1>
+        <p style="margin: 5px 0; color: #666;">Dicetak pada: ${new Date().toLocaleString('id-ID')}</p>
+      </div>
+      <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+        <thead>
+          <tr style="background-color: #f3f4f6;">
+            <th style="border: 1px solid #ddd; padding: 12px; text-align: left; font-size: 12px;">No</th>
+            <th style="border: 1px solid #ddd; padding: 12px; text-align: left; font-size: 12px;">Tanggal</th>
+            <th style="border: 1px solid #ddd; padding: 12px; text-align: left; font-size: 12px;">Judul</th>
+            ${type === 'report' ? '<th style="border: 1px solid #ddd; padding: 12px; text-align: left; font-size: 12px;">Jenis</th>' : ''}
+            <th style="border: 1px solid #ddd; padding: 12px; text-align: left; font-size: 12px;">Keterangan</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${docs.map((doc, idx) => `
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 10px; font-size: 11px;">${idx + 1}</td>
+              <td style="border: 1px solid #ddd; padding: 10px; font-size: 11px;">${doc.tanggal || doc.date}</td>
+              <td style="border: 1px solid #ddd; padding: 10px; font-size: 11px; font-weight: bold;">${doc.judul || doc.title}</td>
+              ${type === 'report' ? `<td style="border: 1px solid #ddd; padding: 10px; font-size: 11px;">${doc.type || '-'}</td>` : ''}
+              <td style="border: 1px solid #ddd; padding: 10px; font-size: 11px;">${doc.content || '-'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    document.body.appendChild(contentElement);
     setLoading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('title', file.name);
-    formData.append('date', new Date().toISOString().split('T')[0]);
-    formData.append('type', type === 'agenda' ? 'agenda' : manualData.reportType);
-
     try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-      if (res.ok) {
-        addToast('File berhasil diunggah');
-        fetchDocs();
-      }
-    } catch (e) {
-      addToast('Gagal mengunggah file', 'error');
+      addToast('Menyiapkan PDF...', 'info');
+      const canvas = await html2canvas(contentElement, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`${title.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`);
+      addToast('PDF berhasil diunduh');
+    } catch (err) {
+      addToast('Gagal mengunduh PDF', 'error');
     } finally {
+      document.body.removeChild(contentElement);
       setLoading(false);
     }
   };
@@ -74,10 +110,11 @@ export default function DocumentModule({ type, token, addToast }: { type: 'agend
         })
       });
       if (res.ok) {
+        const newDoc = await res.json();
+        setDocs(prev => [newDoc, ...prev]);
         addToast('Data berhasil disimpan secara manual');
         setIsManualModalOpen(false);
         setManualData({ ...manualData, title: '', content: '' });
-        fetchDocs();
       }
     } catch (e) {
       addToast('Gagal menyimpan data', 'error');
@@ -101,19 +138,18 @@ export default function DocumentModule({ type, token, addToast }: { type: 'agend
             <Plus className="w-4 h-4" /> Input Manual
           </button>
           <button 
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleDownloadPDF}
             disabled={loading}
             className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all disabled:opacity-50"
           >
-            <Upload className="w-4 h-4" /> {loading ? 'Mengunggah...' : 'Upload PDF'}
+            <Download className="w-4 h-4" /> {loading ? 'Memproses...' : 'Download PDF'}
           </button>
         </div>
-        <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" onChange={handleUpload} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {docs.map(doc => (
-          <div key={doc.id} className="glass glass-hover rounded-3xl p-6 flex flex-col group">
+        {docs.map((doc, idx) => (
+          <div key={doc.id || `doc-${idx}`} className="glass glass-hover rounded-3xl p-6 flex flex-col group">
             <div className="flex justify-between items-start mb-6">
               <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400">
                 {doc.file_path ? <FileText className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
@@ -143,7 +179,7 @@ export default function DocumentModule({ type, token, addToast }: { type: 'agend
         ))}
         {docs.length === 0 && !loading && (
           <div className="col-span-full py-32 glass rounded-3xl flex flex-col items-center justify-center text-slate-500 gap-4 border-dashed border-2 border-white/5">
-            <FileUp className="w-12 h-12 opacity-10" />
+            <ClipboardList className="w-12 h-12 opacity-10" />
             <p className="italic">Belum ada data yang tersedia.</p>
           </div>
         )}
