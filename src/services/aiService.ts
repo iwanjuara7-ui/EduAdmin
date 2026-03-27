@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import mammoth from 'mammoth';
+import { supabase } from '../supabaseClient';
 
 // Lazy initialization of the AI client to ensure the API key is available
 let aiInstance: GoogleGenAI | null = null;
@@ -13,6 +14,67 @@ const getAI = () => {
     aiInstance = new GoogleGenAI({ apiKey });
   }
   return aiInstance;
+};
+
+const uploadBase64ToSupabase = async (base64Data: string, mimeType: string) => {
+  try {
+    if (!supabase || !supabase.storage) {
+      console.warn('Supabase storage is not initialized. Falling back to base64.');
+      return `data:${mimeType};base64,${base64Data}`;
+    }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    
+    if (!userId) {
+      console.warn('User not authenticated. Falling back to base64 for image.');
+      return `data:${mimeType};base64,${base64Data}`;
+    }
+    
+    // Convert base64 to Blob
+    let binaryData;
+    try {
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      binaryData = new Uint8Array(byteNumbers);
+    } catch (atobError) {
+      console.error('Failed to decode base64 data:', atobError);
+      return `data:${mimeType};base64,${base64Data}`;
+    }
+    
+    const blob = new Blob([binaryData], { type: mimeType });
+    
+    const fileExt = mimeType.split('/')[1] || 'png';
+    const fileName = `ai-generated/${userId}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+    
+    console.log(`Uploading image to Supabase: ${fileName}`);
+    
+    const { data, error } = await supabase.storage
+      .from('EduAdmin')
+      .upload(fileName, blob, {
+        contentType: mimeType,
+        cacheControl: '3600',
+        upsert: true
+      });
+      
+    if (error) {
+      console.error('Supabase upload error:', error.message);
+      return `data:${mimeType};base64,${base64Data}`; // Fallback
+    }
+    
+    const { data: { publicUrl } } = supabase.storage
+      .from('EduAdmin')
+      .getPublicUrl(fileName);
+      
+    console.log(`Image uploaded successfully. Public URL: ${publicUrl}`);
+    return publicUrl;
+  } catch (err) {
+    console.error('Failed to upload AI image to Supabase:', err);
+    return `data:${mimeType};base64,${base64Data}`; // Fallback to base64
+  }
 };
 
 export const generateImage = async (prompt: string) => {
@@ -32,15 +94,13 @@ export const generateImage = async (prompt: string) => {
     });
 
     const parts = response.candidates?.[0]?.content?.parts || [];
-    console.log(`Image generation response parts count: ${parts.length}`);
     
     for (const part of parts) {
       if (part.inlineData) {
-        console.log(`Successfully generated image data (length: ${part.inlineData.data.length})`);
-        return `data:image/png;base64,${part.inlineData.data}`;
+        const url = await uploadBase64ToSupabase(part.inlineData.data, part.inlineData.mimeType);
+        return url;
       }
     }
-    console.warn("No inlineData found in image generation response");
     return null;
   } catch (error) {
     console.error("Image generation error details:", error);
@@ -100,6 +160,7 @@ export const generateEducationDocument = async (params: {
   duration: string;
   semester?: string;
   academicCalendar?: string;
+  withImages?: boolean;
 }) => {
   const ai = getAI();
   let prompt = `Generate a professional Indonesian SMA (Senior High School) education document of type ${params.type}.
@@ -122,13 +183,66 @@ export const generateEducationDocument = async (params: {
   
   prompt += `\n\n  Ensure all formulas are converted to beautiful LaTeX.`;
 
+  if (params.withImages) {
+    prompt += `\n\nCRITICAL FOR VISUAL CONTENT:
+    You MUST include diagrams, charts, or illustrations for concepts that require visual explanation (e.g., Physics circuits, Biology cells, Math geometry, Chemistry molecular structures).
+    For EACH such concept, insert a tag immediately after the explanation text: [IMAGE_PROMPT: very detailed English description of the diagram].
+    Example: [IMAGE_PROMPT: A detailed physics circuit diagram with a 12V battery and three resistors (2 ohm, 4 ohm, 6 ohm) in a combination of series and parallel].
+    The description MUST be in English and very specific to allow for accurate generation.`;
+  }
+
   const response = await ai.models.generateContent({
     model: "gemini-3.1-pro-preview",
     contents: prompt,
     config: { systemInstruction: SYSTEM_INSTRUCTION }
   });
 
-  return cleanAIResponse(response.text);
+  let content = cleanAIResponse(response.text);
+
+  if (params.withImages) {
+    content = await processImageTags(content);
+  }
+
+  return content;
+};
+
+const processImageTags = async (content: string) => {
+  const imageRegex = /\[IMAGE_PROMPT:\s*([^\]]+)\]/gi;
+  const matches = Array.from(content.matchAll(imageRegex));
+  
+  if (matches.length === 0) return content;
+
+  console.log(`Found ${matches.length} image prompts. Generating images...`);
+
+  // Parallelize image generation with individual error handling
+  const imagePromises = matches.map(async (match) => {
+    const fullTag = match[0];
+    const imagePrompt = match[1].trim();
+    try {
+      // Add more descriptive context to the prompt for better results
+      const enhancedPrompt = `High quality educational illustration for: ${imagePrompt}. Style: clean, professional, academic, 2D vector illustration, white background.`;
+      const imageUrl = await generateImage(enhancedPrompt);
+      return { fullTag, imageUrl };
+    } catch (err) {
+      console.error(`Error generating image for prompt "${imagePrompt}":`, err);
+      return { fullTag, imageUrl: null };
+    }
+  });
+
+  const results = await Promise.all(imagePromises);
+  
+  let updatedContent = content;
+  for (const { fullTag, imageUrl } of results) {
+    if (imageUrl) {
+      // Use a more robust replacement that handles multiple occurrences of the same tag
+      // and ensures it's rendered as a proper markdown image
+      const markdownImage = `\n\n![${fullTag.replace(/[\[\]]/g, '')}](${imageUrl})\n\n`;
+      updatedContent = updatedContent.split(fullTag).join(markdownImage);
+    } else {
+      updatedContent = updatedContent.split(fullTag).join(`\n\n*(Gambar tidak dapat dimuat: ${fullTag.replace(/[\[\]]/g, '')})*\n\n`);
+    }
+  }
+  return updatedContent;
 };
 
 export const generateExamQuestions = async (params: {
@@ -166,46 +280,7 @@ export const generateExamQuestions = async (params: {
   let content = cleanAIResponse(response.text);
 
   if (params.withImages) {
-    // More robust regex to catch variations and ensure we match the whole tag
-    const imageRegex = /\[IMAGE_PROMPT:\s*([^\]]+)\]/gi;
-    
-    // We need to process matches one by one to avoid issues with identical prompts
-    let match;
-    const processedPrompts = new Map<string, string>();
-    
-    // Create a copy of the content to modify
-    let updatedContent = content;
-    
-    // Find all matches first
-    const matches = Array.from(content.matchAll(imageRegex));
-    
-    for (const match of matches) {
-      const fullTag = match[0];
-      const imagePrompt = match[1].trim();
-      
-      try {
-        let imageUrl = processedPrompts.get(imagePrompt);
-        
-        if (!imageUrl) {
-          console.log(`Generating image for prompt: ${imagePrompt}`);
-          imageUrl = await generateImage(imagePrompt);
-          if (imageUrl) {
-            processedPrompts.set(imagePrompt, imageUrl);
-          }
-        }
-        
-        if (imageUrl) {
-          // Use split/join for safe replacement of all occurrences of this specific tag
-          updatedContent = updatedContent.split(fullTag).join(`\n\n![Diagram/Gambar](${imageUrl})\n\n`);
-        } else {
-          updatedContent = updatedContent.split(fullTag).join(`\n\n*(Gambar sedang diproses atau tidak dapat dimuat)*\n\n`);
-        }
-      } catch (err) {
-        console.error("Error processing image tag:", err);
-        updatedContent = updatedContent.split(fullTag).join(`\n\n*(Gagal memproses gambar)*\n\n`);
-      }
-    }
-    content = updatedContent;
+    content = await processImageTags(content);
   }
 
   return content;
@@ -220,6 +295,7 @@ export const generateFromFile = async (file: File, params: {
   config?: { type: string; count: number; difficulty?: string }[];
   semester?: string;
   academicCalendar?: string;
+  withImages?: boolean;
 }) => {
   const ai = getAI();
   const fileExt = file.name.split('.').pop()?.toLowerCase();
@@ -234,10 +310,19 @@ export const generateFromFile = async (file: File, params: {
   
   Use the content from the attached file to build this document. Ensure all formulas are converted to beautiful LaTeX.`;
 
+  if (params.withImages) {
+    userPrompt += `\n\nCRITICAL FOR VISUAL QUESTIONS:
+    You MUST include diagrams, charts, or illustrations for questions that require visual analysis (e.g., Physics circuits, Biology cells, Math geometry, Chemistry molecular structures).
+    For EACH such question, insert a tag immediately after the question text: [IMAGE_PROMPT: very detailed English description of the diagram].
+    Example: [IMAGE_PROMPT: A detailed physics circuit diagram with a 12V battery and three resistors (2 ohm, 4 ohm, 6 ohm) in a combination of series and parallel].
+    The description MUST be in English and very specific to allow for accurate generation.`;
+  }
+
   if (params.type.includes('ProSem') || params.type.includes('ProTa')) {
     userPrompt += `\n  CRITICAL: Distribute the teaching weeks (Mg) realistically across the months. Do NOT cluster all weeks in one month. Ensure a balanced distribution for a typical academic semester.`;
   }
 
+  let content = '';
   if (fileExt === 'pdf') {
     const reader = new FileReader();
     const base64Promise = new Promise<string>((resolve, reject) => {
@@ -260,7 +345,7 @@ export const generateFromFile = async (file: File, params: {
       ],
       config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return cleanAIResponse(response.text);
+    content = cleanAIResponse(response.text);
   } else if (fileExt === 'docx') {
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer });
@@ -278,8 +363,14 @@ export const generateFromFile = async (file: File, params: {
       ],
       config: { systemInstruction: SYSTEM_INSTRUCTION }
     });
-    return cleanAIResponse(response.text);
+    content = cleanAIResponse(response.text);
   } else {
     throw new Error("Unsupported file type. Please upload PDF or DOCX.");
   }
+
+  if (params.withImages) {
+    content = await processImageTags(content);
+  }
+
+  return content;
 };

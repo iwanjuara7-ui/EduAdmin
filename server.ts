@@ -20,159 +20,36 @@ if (SUPABASE_URL) {
 // Initialize Supabase only if credentials are provided to avoid crashing on startup
 let supabase: any;
 
-/**
- * SUPABASE SETUP GUIDE:
- * 1. Create a Supabase project at https://supabase.com
- * 2. Get your URL and Anon Key from Project Settings > API
- * 3. Add them to the Secrets panel in AI Studio as SUPABASE_URL and SUPABASE_ANON_KEY
- * 4. Run this SQL in your Supabase SQL Editor to create the tables:
- * 
- * -- Create users table (profile)
- * create table public.users (
- *   id uuid references auth.users not null primary key,
- *   email text not null,
- *   name text,
- *   subject text,
- *   password text,
- *   photo_url text,
- *   created_at timestamp with time zone default now()
- * );
- * 
- * -- Create siswa table
- * create table public.siswa (
- *   nis text primary key,
- *   nama text not null,
- *   kelas text,
- *   created_by uuid references auth.users,
- *   created_at timestamp with time zone default now()
- * );
- * 
- * -- Create agenda_guru table
- * create table public.agenda_guru (
- *   id serial primary key,
- *   judul text not null,
- *   tanggal date not null,
- *   file_pdf text,
- *   content text,
- *   uploaded_by uuid references auth.users,
- *   created_at timestamp with time zone default now()
- * );
- * 
- * -- Create laporan_piket table
- * create table public.laporan_piket (
- *   id serial primary key,
- *   judul text not null,
- *   tanggal date not null,
- *   file_pdf text,
- *   content text,
- *   teacher_id uuid references auth.users,
- *   created_at timestamp with time zone default now()
- * );
- * 
- * -- Create laporan_walikelas table
- * create table public.laporan_walikelas (
- *   id serial primary key,
- *   judul text not null,
- *   tanggal date not null,
- *   file_pdf text,
- *   content text,
- *   teacher_id uuid references auth.users,
- *   created_at timestamp with time zone default now()
- * );
- * 
- * -- Create eraport table
- * create table public.eraport (
- *   id serial primary key,
- *   nis text references public.siswa(nis),
- *   mapel text not null,
- *   nilai numeric not null,
- *   semester text not null,
- *   teacher_id uuid references auth.users,
- *   tugas1 numeric default 0,
- *   tugas2 numeric default 0,
- *   formatif1 numeric default 0,
- *   formatif2 numeric default 0,
- *   pts numeric default 0,
- *   uas numeric default 0,
- *   created_at timestamp with time zone default now()
- * );
- * 
- * -- Create kkm table
- * create table public.kkm (
- *   id serial primary key,
- *   subject text not null,
- *   value numeric not null,
- *   teacher_id uuid references auth.users,
- *   unique(subject, teacher_id)
- * );
- * 
- * -- Create absensi_siswa table
- * create table public.absensi_siswa (
- *   id serial primary key,
- *   nis text references public.siswa(nis),
- *   tanggal date not null,
- *   status text not null,
- *   teacher_id uuid references auth.users,
- *   unique(nis, tanggal, teacher_id)
- * );
- * 
- * -- Create ai_documents table
- * create table public.ai_documents (
- *   id serial primary key,
- *   type text not null,
- *   content text not null,
- *   pdf_url text,
- *   created_by uuid references auth.users,
- *   created_at timestamp with time zone default now()
- * );
- * 
- * -- Disable "Email Confirmation" in Authentication > Settings if you want instant login.
- */
-const DB_FILE = path.resolve('db.json');
-let inMemoryStore: Record<string, any[]> = {
-  users: [],
-  siswa: [],
-  agenda_guru: [],
-  laporan_piket: [],
-  laporan_walikelas: [],
-  eraport: [],
-  kkm: [],
-  absensi_siswa: [],
-  ai_documents: []
-};
-
-// Load data from file if exists
-if (fs.existsSync(DB_FILE)) {
-  try {
-    const data = fs.readFileSync(DB_FILE, 'utf8');
-    inMemoryStore = JSON.parse(data);
-    console.log('Data loaded from db.json');
-  } catch (err) {
-    console.error('Failed to load db.json:', err);
-  }
-}
-
-function saveToDB() {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(inMemoryStore, null, 2));
-  } catch (err) {
-    console.error('Failed to save to db.json:', err);
-  }
-}
-
 const STORAGE_BUCKET = 'EduAdmin';
 
-async function uploadToSupabase(file: any, folder: string = 'uploads') {
+// Helper to get Supabase client with user context if available
+function getSupabaseClient(token?: string) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return supabase;
+  
+  if (token) {
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+  }
+  return supabase;
+}
+
+async function uploadToSupabase(file: any, folder: string = 'uploads', userId: string, userToken?: string) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !supabase.storage) {
     return `/uploads/${file.filename}`;
   }
 
   try {
     const fileExt = path.extname(file.originalname);
-    const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2)}${fileExt}`;
+    const fileName = `${folder}/${userId}/${Date.now()}-${Math.random().toString(36).substring(2)}${fileExt}`;
     const fileBuffer = fs.readFileSync(file.path);
 
-    const { data, error } = await supabase.storage
+    const client = getSupabaseClient(userToken);
+    const { data, error } = await client.storage
       .from(STORAGE_BUCKET)
       .upload(fileName, fileBuffer, {
         contentType: file.mimetype,
@@ -181,13 +58,10 @@ async function uploadToSupabase(file: any, folder: string = 'uploads') {
 
     if (error) {
       console.error('Supabase storage error:', error);
-      if (error.message.includes('row-level security policy')) {
-        console.error('FIX: You need to add a storage policy in Supabase to allow uploads to the "EduAdmin" bucket. See supabase_schema.sql for the SQL commands.');
-      }
       return `/uploads/${file.filename}`; // Fallback to local
     }
 
-    const { data: { publicUrl } } = supabase.storage
+    const { data: { publicUrl } } = client.storage
       .from(STORAGE_BUCKET)
       .getPublicUrl(fileName);
 
@@ -197,6 +71,29 @@ async function uploadToSupabase(file: any, folder: string = 'uploads') {
     return `/uploads/${file.filename}`;
   }
 }
+
+let inMemoryStore: any = {};
+const DB_FILE = 'mock-db.json';
+
+const saveToDB = () => {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(inMemoryStore, null, 2));
+  } catch (err) {
+    console.error('Failed to save mock DB:', err);
+  }
+};
+
+const loadFromDB = () => {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      inMemoryStore = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+    }
+  } catch (err) {
+    console.error('Failed to load mock DB:', err);
+  }
+};
+
+loadFromDB();
 
 try {
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
@@ -388,6 +285,7 @@ async function startServer() {
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
       if (err || !user) return res.sendStatus(403);
       req.user = user;
+      req.supabaseToken = user.supabase_token; // Store Supabase token if available
       next();
     });
   };
@@ -397,18 +295,7 @@ async function startServer() {
     const { email, password, name, subject } = req.body;
     
     try {
-      // 1. Check if email already exists in our users table (profile/fallback)
-      const { data: existingProfile } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle();
-      
-      if (existingProfile) {
-        return res.status(400).json({ error: 'Email sudah terdaftar. Silakan login.' });
-      }
-
-      // 2. Register with Supabase Auth if available
+      // 1. Register with Supabase Auth if available
       let authUserId = null;
       if (supabase.auth && typeof supabase.auth.signUp === 'function' && SUPABASE_URL) {
         const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -417,35 +304,19 @@ async function startServer() {
         });
 
         if (authError) {
-          // If user already registered in Auth but not in our table (ghost user)
           if (authError.message.includes('already registered')) {
-            console.log('User already in Auth, attempting to recover profile...');
-            // Try to sign in to get the ID
-            const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-              email,
-              password,
-            });
-            
-            if (signInError) {
-              return res.status(400).json({ error: 'Email sudah terdaftar di sistem. Silakan login.' });
-            }
-            authUserId = signInData.user?.id;
-          } else {
-            console.error('Supabase Auth SignUp Error:', authError);
-            return res.status(400).json({ error: authError.message });
+            return res.status(400).json({ error: 'Email sudah terdaftar. Silakan login.' });
           }
-        } else {
-          authUserId = authData.user?.id;
+          console.error('Supabase Auth SignUp Error:', authError);
+          return res.status(400).json({ error: authError.message });
         }
+        authUserId = authData.user?.id;
       }
 
-      const hashedPassword = bcrypt.hashSync(password, 10);
-      
-      // 3. Insert into users table (profile profile)
+      // 2. Insert into users table (profile)
       const userData = { 
         id: authUserId || `mock-${Math.random().toString(36).substring(2, 10)}`,
         email, 
-        password: hashedPassword, 
         name, 
         subject 
       };
@@ -457,15 +328,9 @@ async function startServer() {
         .single();
 
       if (error || !data) {
-        console.error('Database Insert Error:', error?.message || error, error?.code, error?.details);
-        
-        // If it's a "duplicate key" error, it means the profile was somehow created
-        if (error?.code === '23505') {
-           return res.status(400).json({ error: 'Profil sudah ada. Silakan login.' });
-        }
-
+        console.error('Database Insert Error:', error?.message || error);
         return res.status(400).json({ 
-          error: 'Registrasi gagal di database. Silakan coba lagi.',
+          error: 'Registrasi gagal di database.',
           details: error?.message || 'Gagal menyimpan profil.'
         });
       }
@@ -481,6 +346,7 @@ async function startServer() {
     
     try {
       let user = null;
+      let supabaseToken = null;
 
       // 1. Try Supabase Auth first if available
       if (supabase.auth && typeof supabase.auth.signInWithPassword === 'function' && SUPABASE_URL) {
@@ -490,8 +356,9 @@ async function startServer() {
         });
 
         if (!authError && authData.user) {
-          // Auth success, get profile from users table
-          const { data: profile, error: profileError } = await supabase
+          supabaseToken = authData.session?.access_token;
+          
+          const { data: profile } = await supabase
             .from('users')
             .select('*')
             .eq('email', email)
@@ -500,7 +367,6 @@ async function startServer() {
           if (profile) {
             user = profile;
           } else {
-            // If auth succeeded but profile missing (shouldn't happen with proper register)
             user = { 
               id: authData.user.id, 
               email: authData.user.email, 
@@ -511,23 +377,10 @@ async function startServer() {
         }
       }
 
-      // 2. Fallback to manual check (for mock or legacy users)
-      if (!user) {
-        const { data: users, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('email', email);
-
-        if (!error && users) {
-          const userList = Array.isArray(users) ? users : [users];
-          user = userList.find(u => {
-            try {
-              return bcrypt.compareSync(password, u.password);
-            } catch (e) {
-              return false;
-            }
-          });
-        }
+      // 2. Fallback to manual check (for mock)
+      if (!user && (!SUPABASE_URL || !SUPABASE_ANON_KEY)) {
+        const mockUser = inMemoryStore['users']?.find(u => u.email === email && bcrypt.compareSync(password, u.password));
+        if (mockUser) user = mockUser;
       }
 
       if (user) {
@@ -536,7 +389,8 @@ async function startServer() {
           email: user.email, 
           name: user.name, 
           subject: user.subject, 
-          photo_url: user.photo_url 
+          photo_url: user.photo_url,
+          supabase_token: supabaseToken
         }, JWT_SECRET);
         
         res.json({ 
@@ -596,83 +450,41 @@ async function startServer() {
   });
 
   app.post('/api/auth/upload-photo', authenticateToken, (req: any, res: any) => {
-    console.log('Upload photo request received for user:', req.user.id);
     upload.single('photo')(req, res, async (err: any) => {
       try {
-        if (err instanceof multer.MulterError) {
-          console.error('Multer error:', err);
-          return res.status(400).json({ error: `Multer error: ${err.message}` });
-        } else if (err) {
-          console.error('Unknown upload error:', err);
-          return res.status(500).json({ error: `Unknown error: ${err.message}` });
-        }
-
-        if (!req.file) {
-          console.error('No file uploaded in request');
-          return res.status(400).json({ error: 'No file uploaded' });
-        }
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
         
-        console.log('File uploaded to local storage:', req.file.path);
-        const photoUrl = await uploadToSupabase(req.file, 'profiles');
-        console.log('Photo URL generated:', photoUrl);
+        const photoUrl = await uploadToSupabase(req.file, 'profiles', req.user.id, req.supabaseToken);
         
-        // Ghost user recovery for mock environment
-        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-          const userExists = inMemoryStore.users.some(u => 
-            String(u.id) === String(req.user.id) || u.email === req.user.email
-          );
-          if (!userExists) {
-            console.warn('Ghost user detected in mock, re-inserting from token:', req.user.id);
-            inMemoryStore.users.push({
-              id: Number(req.user.id) || req.user.id,
-              email: req.user.email,
-              name: req.user.name || req.user.email?.split('@')[0] || 'User',
-              subject: req.user.subject || 'Guru',
-              photo_url: req.user.photo_url,
-              password: 'recovered-from-token'
-            });
-            saveToDB();
-          }
-        }
-
-        // Use update instead of upsert to avoid NOT NULL constraint errors on password
-        const updateData = { 
-          photo_url: photoUrl,
-          name: req.user.name || req.user.email?.split('@')[0] || 'User',
-          subject: req.user.subject || 'Guru'
-        };
-
-        const { data, error } = await supabase
+        const { data, error } = await getSupabaseClient(req.supabaseToken)
           .from('users')
-          .update(updateData)
+          .update({ photo_url: photoUrl })
           .eq('id', req.user.id)
           .select()
           .single();
 
-        if (error || !data) {
-          console.error('Database update error after upload:', error?.message || error, error?.code, error?.details);
-          console.log('Target user ID:', req.user.id);
-          console.log('Update data:', updateData);
-          
-          return res.status(400).json({ 
-            error: 'Gagal memperbarui profil di database.',
-            details: error ? error.message : 'User not found'
-          });
-        }
+        if (error) return res.status(400).json({ error: error.message });
         
-        console.log('User profile updated with new photo URL');
-        const token = jwt.sign({ id: data.id, email: data.email, name: data.name, subject: data.subject, photo_url: data.photo_url }, JWT_SECRET);
+        const token = jwt.sign({ 
+          id: data.id, 
+          email: data.email, 
+          name: data.name, 
+          subject: data.subject, 
+          photo_url: data.photo_url,
+          supabase_token: req.supabaseToken
+        }, JWT_SECRET);
+        
         res.json({ token, user: { id: data.id, email: data.email, name: data.name, subject: data.subject, photo_url: data.photo_url } });
       } catch (dbErr: any) {
-        console.error('Exception during upload processing:', dbErr);
-        res.status(500).json({ error: dbErr.message || 'Internal server error during upload' });
+        res.status(500).json({ error: dbErr.message });
       }
     });
   });
 
   // Student Routes
   app.get('/api/students', authenticateToken, async (req: any, res) => {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient(req.supabaseToken)
       .from('siswa')
       .select('*')
       .eq('created_by', req.user.id);
@@ -683,7 +495,7 @@ async function startServer() {
 
   app.post('/api/students', authenticateToken, async (req: any, res) => {
     const { nis, name, className } = req.body;
-    const { error } = await supabase
+    const { error } = await getSupabaseClient(req.supabaseToken)
       .from('siswa')
       .upsert({ nis, nama: name, kelas: className, created_by: req.user.id }, { onConflict: 'nis' });
 
@@ -703,17 +515,13 @@ async function startServer() {
         created_by: req.user.id
       }));
 
-      const { error } = await supabase
+      const { error } = await getSupabaseClient(req.supabaseToken)
         .from('siswa')
         .upsert(studentsToInsert, { onConflict: 'nis' });
 
-      if (error) {
-        console.error('Supabase bulk upsert error:', error);
-        return res.status(500).json({ error: error.message });
-      }
+      if (error) return res.status(500).json({ error: error.message });
       res.json({ success: true });
     } catch (err: any) {
-      console.error('Bulk upload handler error:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -722,7 +530,7 @@ async function startServer() {
     const { name, className } = req.body;
     const { nis } = req.params;
     
-    const { error } = await supabase
+    const { error } = await getSupabaseClient(req.supabaseToken)
       .from('siswa')
       .update({ nama: name, kelas: className })
       .eq('nis', nis)
@@ -734,7 +542,7 @@ async function startServer() {
 
   app.delete('/api/students/:nis', authenticateToken, async (req: any, res) => {
     const { nis } = req.params;
-    const { error } = await supabase
+    const { error } = await getSupabaseClient(req.supabaseToken)
       .from('siswa')
       .delete()
       .eq('nis', nis)
@@ -746,7 +554,7 @@ async function startServer() {
 
   // Agenda & Reports
   app.get('/api/agenda', authenticateToken, async (req: any, res) => {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient(req.supabaseToken)
       .from('agenda_guru')
       .select('*')
       .eq('uploaded_by', req.user.id)
@@ -757,9 +565,10 @@ async function startServer() {
   });
 
   app.get('/api/reports', authenticateToken, async (req: any, res) => {
+    const client = getSupabaseClient(req.supabaseToken);
     const [piket, walikelas] = await Promise.all([
-      supabase.from('laporan_piket').select('*').eq('teacher_id', req.user.id),
-      supabase.from('laporan_walikelas').select('*').eq('teacher_id', req.user.id)
+      client.from('laporan_piket').select('*').eq('teacher_id', req.user.id),
+      client.from('laporan_walikelas').select('*').eq('teacher_id', req.user.id)
     ]);
     
     // Use a unique ID for the frontend by prefixing with type
@@ -774,18 +583,15 @@ async function startServer() {
   app.post('/api/upload', authenticateToken, (req: any, res: any) => {
     upload.single('file')(req, res, async (err: any) => {
       try {
-        if (err instanceof multer.MulterError) {
-          return res.status(400).json({ error: `Multer error: ${err.message}` });
-        } else if (err) {
-          return res.status(500).json({ error: `Unknown error: ${err.message}` });
-        }
+        if (err) return res.status(400).json({ error: err.message });
 
         const { title, date, type } = req.body;
-        const filePath = req.file ? await uploadToSupabase(req.file, 'documents') : null;
+        const filePath = req.file ? await uploadToSupabase(req.file, 'documents', req.user.id, req.supabaseToken) : null;
         
         let error, data;
+        const client = getSupabaseClient(req.supabaseToken);
         if (type === 'agenda') {
-          const result = await supabase
+          const result = await client
             .from('agenda_guru')
             .insert([{ judul: title, tanggal: date, file_pdf: filePath, uploaded_by: req.user.id }])
             .select()
@@ -793,7 +599,7 @@ async function startServer() {
           error = result.error;
           data = result.data;
         } else if (type === 'Piket') {
-          const result = await supabase
+          const result = await client
             .from('laporan_piket')
             .insert([{ judul: title, tanggal: date, file_pdf: filePath, teacher_id: req.user.id }])
             .select()
@@ -802,7 +608,7 @@ async function startServer() {
           data = result.data;
           if (data) data = { ...data, type: 'Piket', original_id: data.id, id: `piket-${data.id}` };
         } else {
-          const result = await supabase
+          const result = await client
             .from('laporan_walikelas')
             .insert([{ judul: title, tanggal: date, file_pdf: filePath, teacher_id: req.user.id }])
             .select()
@@ -812,14 +618,10 @@ async function startServer() {
           if (data) data = { ...data, type: 'Wali Kelas', original_id: data.id, id: `wk-${data.id}` };
         }
 
-        if (error) {
-          console.error('Database insert error during upload:', error);
-          return res.status(500).json({ error: error.message });
-        }
+        if (error) return res.status(500).json({ error: error.message });
         res.json(data);
       } catch (e: any) {
-        console.error('Exception during /api/upload processing:', e);
-        res.status(500).json({ error: e.message || 'Internal server error during upload' });
+        res.status(500).json({ error: e.message });
       }
     });
   });
@@ -828,8 +630,9 @@ async function startServer() {
     const { title, date, type, content } = req.body;
     
     let error, data;
+    const client = getSupabaseClient(req.supabaseToken);
     if (type === 'agenda') {
-      const result = await supabase
+      const result = await client
         .from('agenda_guru')
         .insert([{ judul: title, tanggal: date, content, uploaded_by: req.user.id }])
         .select()
@@ -837,7 +640,7 @@ async function startServer() {
       error = result.error;
       data = result.data;
     } else if (type === 'Piket') {
-      const result = await supabase
+      const result = await client
         .from('laporan_piket')
         .insert([{ judul: title, tanggal: date, content, teacher_id: req.user.id }])
         .select()
@@ -846,7 +649,7 @@ async function startServer() {
       data = result.data;
       if (data) data = { ...data, type: 'Piket', original_id: data.id, id: `piket-${data.id}` };
     } else {
-      const result = await supabase
+      const result = await client
         .from('laporan_walikelas')
         .insert([{ judul: title, tanggal: date, content, teacher_id: req.user.id }])
         .select()
@@ -862,7 +665,7 @@ async function startServer() {
 
   // E-Raport Routes
   app.get('/api/eraport', authenticateToken, async (req: any, res) => {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient(req.supabaseToken)
       .from('eraport')
       .select(`
         *,
@@ -886,7 +689,7 @@ async function startServer() {
 
   app.post('/api/eraport', authenticateToken, async (req: any, res) => {
     const { student_nis, subject, score, semester, tugas1, tugas2, formatif1, formatif2, pts, uas } = req.body;
-    const { error } = await supabase
+    const { error } = await getSupabaseClient(req.supabaseToken)
       .from('eraport')
       .insert([{
         nis: student_nis, mapel: subject, nilai: score, semester, teacher_id: req.user.id,
@@ -898,7 +701,7 @@ async function startServer() {
   });
 
   app.delete('/api/eraport/:id', authenticateToken, async (req: any, res) => {
-    const { error } = await supabase
+    const { error } = await getSupabaseClient(req.supabaseToken)
       .from('eraport')
       .delete()
       .eq('id', req.params.id)
@@ -910,7 +713,7 @@ async function startServer() {
 
   // KKM Routes
   app.get('/api/kkm', authenticateToken, async (req: any, res) => {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient(req.supabaseToken)
       .from('kkm')
       .select('*')
       .eq('teacher_id', req.user.id);
@@ -921,7 +724,7 @@ async function startServer() {
 
   app.post('/api/kkm', authenticateToken, async (req: any, res) => {
     const { subject, value } = req.body;
-    const { error } = await supabase
+    const { error } = await getSupabaseClient(req.supabaseToken)
       .from('kkm')
       .upsert({ subject, value, teacher_id: req.user.id }, { onConflict: 'subject,teacher_id' });
 
@@ -931,6 +734,7 @@ async function startServer() {
 
   // Stats
   app.get('/api/stats', authenticateToken, async (req: any, res) => {
+    const client = getSupabaseClient(req.supabaseToken);
     const [
       { count: studentsCount },
       { count: agendaCount },
@@ -938,11 +742,11 @@ async function startServer() {
       { count: waliCount },
       { count: eraportCount }
     ] = await Promise.all([
-      supabase.from('siswa').select('*', { count: 'exact', head: true }).eq('created_by', req.user.id),
-      supabase.from('agenda_guru').select('*', { count: 'exact', head: true }).eq('uploaded_by', req.user.id),
-      supabase.from('laporan_piket').select('*', { count: 'exact', head: true }).eq('teacher_id', req.user.id),
-      supabase.from('laporan_walikelas').select('*', { count: 'exact', head: true }).eq('teacher_id', req.user.id),
-      supabase.from('eraport').select('*', { count: 'exact', head: true }).eq('teacher_id', req.user.id)
+      client.from('siswa').select('*', { count: 'exact', head: true }).eq('created_by', req.user.id),
+      client.from('agenda_guru').select('*', { count: 'exact', head: true }).eq('uploaded_by', req.user.id),
+      client.from('laporan_piket').select('*', { count: 'exact', head: true }).eq('teacher_id', req.user.id),
+      client.from('laporan_walikelas').select('*', { count: 'exact', head: true }).eq('teacher_id', req.user.id),
+      client.from('eraport').select('*', { count: 'exact', head: true }).eq('teacher_id', req.user.id)
     ]);
 
     res.json({
@@ -956,7 +760,7 @@ async function startServer() {
   // Attendance Routes
   app.get('/api/attendance', authenticateToken, async (req: any, res) => {
     const { date, startDate, endDate } = req.query;
-    let query = supabase
+    let query = getSupabaseClient(req.supabaseToken)
       .from('absensi_siswa')
       .select('*')
       .eq('teacher_id', req.user.id);
@@ -972,7 +776,7 @@ async function startServer() {
     if (error) return res.status(500).json({ error: error.message });
     
     // Map back to frontend format
-    const formatted = data.map((d: any) => ({
+    const formatted = (data || []).map((d: any) => ({
       ...d,
       student_nis: d.nis,
       date: d.tanggal
@@ -992,7 +796,7 @@ async function startServer() {
       teacher_id: req.user.id
     }));
 
-    const { error } = await supabase
+    const { error } = await getSupabaseClient(req.supabaseToken)
       .from('absensi_siswa')
       .upsert(attendanceToInsert, { onConflict: 'nis,tanggal,teacher_id' });
 
@@ -1002,11 +806,12 @@ async function startServer() {
 
   // AI Documents Routes
   app.get('/api/ai-documents', authenticateToken, async (req: any, res) => {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient(req.supabaseToken)
       .from('ai_documents')
       .select('*')
       .eq('created_by', req.user.id)
-      .order('id', { ascending: false });
+      .order('id', { ascending: false })
+      .limit(50);
     
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
@@ -1014,7 +819,7 @@ async function startServer() {
 
   app.post('/api/ai-documents', authenticateToken, async (req: any, res) => {
     const { type, content, pdf_url } = req.body;
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient(req.supabaseToken)
       .from('ai_documents')
       .insert([{ type, content, pdf_url, created_by: req.user.id }])
       .select()

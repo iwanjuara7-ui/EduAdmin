@@ -16,6 +16,15 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
 const DocCard = React.memo(({ doc, onSelect, onDownload }: { doc: any; onSelect: (doc: any) => void; onDownload: (doc: any, format: 'pdf' | 'doc') => void }) => {
+  const contentPreview = React.useMemo(() => {
+    // Strip large base64 images for preview to avoid breaking markdown and improve performance
+    // We replace them with a placeholder that the user can see in the full view
+    // Non-base64 images (Supabase URLs) are kept
+    const stripped = doc.content.replace(/!\[.*?\]\(data:[^)]*?\)/g, '*(Gambar tersedia di detail)*');
+    if (stripped.length <= 800) return stripped;
+    return stripped.substring(0, 800) + '...';
+  }, [doc.content]);
+
   return (
     <div className="glass rounded-3xl p-8 flex flex-col border border-white/5">
       <div className="flex justify-between items-start mb-6">
@@ -38,11 +47,13 @@ const DocCard = React.memo(({ doc, onSelect, onDownload }: { doc: any; onSelect:
             ),
             img: ({ src, ...props }) => {
               if (!src) return null;
-              return <img src={src} {...props} />;
+              // Don't show base64 in preview to save memory
+              if (src.startsWith('data:')) return <div className="p-4 bg-white/5 rounded-xl text-[10px] text-center text-slate-500 italic">Gambar tersedia di detail</div>;
+              return <img src={src} className="rounded-xl border border-white/10 max-h-40 object-cover w-full" {...props} />;
             }
           }}
         >
-          {doc.content.length > 500 ? doc.content.substring(0, 500) + '...' : doc.content}
+          {contentPreview}
         </ReactMarkdown>
       </div>
       <div className="mt-auto flex gap-2 pt-4 border-t border-white/5">
@@ -88,7 +99,8 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
     objectives: '',
     duration: '2 x 45 Menit',
     semester: 'Ganjil',
-    academicCalendar: ''
+    academicCalendar: '',
+    withImages: false
   });
 
   const [displayLimit, setDisplayLimit] = useState(6);
@@ -118,7 +130,7 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
         setDocs(prev => [newDoc, ...prev]);
         addToast('Dokumen AI berhasil dibuat');
         setIsModalOpen(false);
-        // Reset params
+        // Reset params but keep context
         setParams({
           ...params,
           topic: '',
@@ -126,6 +138,7 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
         });
       }
     } catch (e) {
+      console.error('Generation error:', e);
       addToast('Gagal membuat dokumen AI', 'error');
     } finally {
       setGenerating(false);
@@ -141,12 +154,7 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
 
     setGenerating(true);
     try {
-      const content = await generateFromFile(uploadFile, {
-        type: params.type,
-        subject: params.subject,
-        className: params.className,
-        duration: params.duration
-      });
+      const content = await generateFromFile(uploadFile, params);
 
       const res = await fetch('/api/ai-documents', {
         method: 'POST',
@@ -178,6 +186,12 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
       setGenerating(false);
     }
   };
+
+  // Memoize selected document content to prevent re-rendering lag
+  const selectedDocContent = React.useMemo(() => {
+    if (!selectedDoc?.content) return '';
+    return selectedDoc.content;
+  }, [selectedDoc?.id, selectedDoc?.content]);
 
   const handleDownload = async (doc: any, format: 'pdf' | 'doc') => {
     const contentElement = document.createElement('div');
@@ -372,13 +386,31 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
                           <table className="min-w-full">{children}</table>
                         </div>
                       ),
-                      img: ({ src, ...props }) => {
+                      img: ({ src, alt, ...props }) => {
                         if (!src) return null;
-                        return <img src={src} {...props} />;
+                        return (
+                          <div className="my-6 flex flex-col items-center">
+                            <div className="relative group overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-2xl transition-all hover:border-purple-500/50">
+                              <img 
+                                src={src} 
+                                alt={alt || "Gambar Dokumen"} 
+                                className="max-w-full h-auto object-contain max-h-[400px] transition-transform duration-500 group-hover:scale-105"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                                {...props} 
+                              />
+                            </div>
+                            {alt && (
+                              <p className="mt-3 text-[10px] font-medium text-slate-500 italic uppercase tracking-wider">
+                                {alt}
+                              </p>
+                            )}
+                          </div>
+                        );
                       }
                     }}
                   >
-                    {selectedDoc.content}
+                    {selectedDocContent}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -464,6 +496,20 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
                   <Input label="Kelas" placeholder="X IPA 1" value={params.className} onChange={(e: any) => setParams({...params, className: e.target.value})} required />
                   <Input label="Durasi" placeholder="2 x 45 Menit" value={params.duration} onChange={(e: any) => setParams({...params, duration: e.target.value})} required />
                 </div>
+
+                <div className="flex items-center gap-3 p-4 bg-purple-500/10 rounded-2xl border border-purple-500/20">
+                  <input 
+                    type="checkbox" 
+                    id="withImagesDoc"
+                    className="w-5 h-5 rounded border-white/10 bg-white/5 text-purple-500 focus:ring-purple-500/50"
+                    checked={params.withImages}
+                    onChange={(e) => setParams({...params, withImages: e.target.checked})}
+                  />
+                  <label htmlFor="withImagesDoc" className="text-sm font-medium text-slate-200 cursor-pointer">
+                    Sertakan Gambar (Visual Content Mode)
+                  </label>
+                </div>
+
                 <button 
                   disabled={generating}
                   className="w-full py-4 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
@@ -542,6 +588,26 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Input label="Durasi" placeholder="2 x 45 Menit" value={params.duration} onChange={(e: any) => setParams({...params, duration: e.target.value})} required />
+                </div>
+
+                <div className="flex items-center gap-3 p-4 bg-white/5 rounded-2xl border border-white/10">
+                  <div className="flex-1">
+                    <p className="text-sm font-bold">Sertakan Gambar</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">Gunakan AI untuk membuat ilustrasi materi</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setParams({...params, withImages: !params.withImages})}
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-all relative",
+                      params.withImages ? "bg-purple-500" : "bg-white/10"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 rounded-full bg-white transition-all",
+                      params.withImages ? "left-7" : "left-1"
+                    )} />
+                  </button>
                 </div>
 
                 {(params.type.includes('ProSem') || params.type.includes('ProTa')) && (

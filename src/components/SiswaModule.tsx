@@ -18,6 +18,7 @@ export default function SiswaModule({ token, addToast, refreshStats, students, s
   const [newStudent, setNewStudent] = useState({ nis: '', name: '', className: 'X IPA 1' });
   const [editingStudent, setEditingStudent] = useState<any>(null);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
+  const [displayLimit, setDisplayLimit] = useState(15);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -226,7 +227,7 @@ export default function SiswaModule({ token, addToast, refreshStats, students, s
             </thead>
             <tbody className="divide-y divide-white/5">
               {filtered.length > 0 ? (
-                filtered.map((s, idx) => (
+                filtered.slice(0, displayLimit).map((s, idx) => (
                   <tr key={s.id || s.nis || idx} className="hover:bg-white/5 transition-colors group">
                     <td className="px-8 py-5 font-mono text-xs text-slate-400">{String(s?.nis || '').split('.')[0]}</td>
                     <td className="px-8 py-5 font-semibold text-sm">{s?.nama || 'Unknown'}</td>
@@ -298,7 +299,7 @@ export default function SiswaModule({ token, addToast, refreshStats, students, s
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="w-full max-w-md glass rounded-[2.5rem] p-10 shadow-2xl relative z-10"
+              className="w-full max-w-md glass rounded-[2.5rem] p-10 shadow-2xl relative z-10 max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
               <div className="flex items-center justify-between mb-8">
                 <h3 className="text-2xl font-bold">Edit Siswa</h3>
@@ -386,6 +387,17 @@ export default function SiswaModule({ token, addToast, refreshStats, students, s
         )}
       </AnimatePresence>
 
+      {filtered.length > displayLimit && (
+        <div className="flex justify-center pt-8">
+          <button 
+            onClick={() => setDisplayLimit(prev => prev + 15)}
+            className="px-8 py-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/10 text-sm font-bold transition-all"
+          >
+            Muat Lebih Banyak
+          </button>
+        </div>
+      )}
+
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -398,7 +410,7 @@ export default function SiswaModule({ token, addToast, refreshStats, students, s
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="w-full max-w-md glass rounded-[2.5rem] p-10 shadow-2xl relative z-10"
+              className="w-full max-w-md glass rounded-[2.5rem] p-10 shadow-2xl relative z-10 max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
               <div className="flex items-center justify-between mb-8">
                 <h3 className="text-2xl font-bold">Tambah / Replace Siswa</h3>

@@ -32,6 +32,7 @@ export default function App() {
   const [students, setStudents] = useState<any[]>([]);
   const [aiDocs, setAiDocs] = useState<any[]>([]);
   const [aiQuestions, setAiQuestions] = useState<any[]>([]);
+  const [isLoadingAIData, setIsLoadingAIData] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -50,6 +51,7 @@ export default function App() {
 
   const fetchAIData = React.useCallback(async () => {
     if (!token) return;
+    setIsLoadingAIData(true);
     try {
       const res = await fetch('/api/ai-documents', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -61,6 +63,8 @@ export default function App() {
       }
     } catch (e) {
       console.error('Fetch AI data error:', e);
+    } finally {
+      setIsLoadingAIData(false);
     }
   }, [token]);
 
@@ -218,8 +222,26 @@ export default function App() {
               {currentView === 'agenda' && <DocumentModule type="agenda" token={token!} addToast={addToast} />}
               {currentView === 'laporan' && <DocumentModule type="report" token={token!} addToast={addToast} />}
               {currentView === 'eraport' && <ERaportModule token={token!} addToast={addToast} students={students} fetchStudents={fetchStudents} />}
-              {currentView === 'ai-doc' && <AIDocModule token={token!} addToast={addToast} docs={aiDocs} setDocs={setAiDocs} />}
-              {currentView === 'ai-soal' && <AISoalModule token={token!} addToast={addToast} questions={aiQuestions} setQuestions={setAiQuestions} />}
+              {currentView === 'ai-doc' && (
+                isLoadingAIData ? (
+                  <div className="flex flex-col items-center justify-center py-20">
+                    <div className="w-12 h-12 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin mb-4"></div>
+                    <p className="text-slate-400 animate-pulse">Memuat Dokumen AI...</p>
+                  </div>
+                ) : (
+                  <AIDocModule token={token!} addToast={addToast} docs={aiDocs} setDocs={setAiDocs} />
+                )
+              )}
+              {currentView === 'ai-soal' && (
+                isLoadingAIData ? (
+                  <div className="flex flex-col items-center justify-center py-20">
+                    <div className="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin mb-4"></div>
+                    <p className="text-slate-400 animate-pulse">Memuat Soal AI...</p>
+                  </div>
+                ) : (
+                  <AISoalModule token={token!} addToast={addToast} questions={aiQuestions} setQuestions={setAiQuestions} />
+                )
+              )}
               {currentView === 'settings' && <SettingsModule user={user} setUser={(u: any) => {
                 setUser(u);
                 localStorage.setItem('user', JSON.stringify(u));

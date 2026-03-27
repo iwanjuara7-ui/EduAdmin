@@ -19,12 +19,21 @@ export default function DocumentModule({ type, token, addToast }: { type: 'agend
     content: '',
     reportType: 'Piket' 
   });
+  const [displayLimit, setDisplayLimit] = useState(9);
 
   const fetchDocs = async () => {
-    const endpoint = type === 'agenda' ? '/api/agenda' : '/api/reports';
-    const res = await fetch(endpoint, { headers: { 'Authorization': `Bearer ${token}` } });
-    const data = await res.json();
-    setDocs(data);
+    setLoading(true);
+    try {
+      const endpoint = type === 'agenda' ? '/api/agenda' : '/api/reports';
+      const res = await fetch(endpoint, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      setDocs(data);
+    } catch (err) {
+      console.error('Fetch docs error:', err);
+      addToast('Gagal memuat data', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchDocs(); }, [type]);
@@ -147,43 +156,61 @@ export default function DocumentModule({ type, token, addToast }: { type: 'agend
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {docs.map((doc, idx) => (
-          <div key={doc.id || `doc-${idx}`} className="glass glass-hover rounded-3xl p-6 flex flex-col group">
-            <div className="flex justify-between items-start mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400">
-                {doc.file_path ? <FileText className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-32 glass rounded-3xl">
+          <div className="w-12 h-12 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin mb-4"></div>
+          <p className="text-slate-400 animate-pulse">Memuat data...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {docs.slice(0, displayLimit).map((doc, idx) => (
+            <div key={doc.id || `doc-${idx}`} className="glass glass-hover rounded-3xl p-6 flex flex-col group">
+              <div className="flex justify-between items-start mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400">
+                  {doc.file_path ? <FileText className="w-6 h-6" /> : <ClipboardList className="w-6 h-6" />}
+                </div>
+                {doc.type && doc.type !== 'agenda' && (
+                  <span className="px-2 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 text-[10px] font-bold uppercase tracking-wider border border-cyan-500/20">
+                    {doc.type}
+                  </span>
+                )}
               </div>
-              {doc.type && doc.type !== 'agenda' && (
-                <span className="px-2 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 text-[10px] font-bold uppercase tracking-wider border border-cyan-500/20">
-                  {doc.type}
-                </span>
-              )}
-            </div>
-            <h4 className="font-bold text-lg mb-1 line-clamp-1">{doc.judul || doc.title}</h4>
-            <p className="text-xs text-slate-500 mb-4 flex items-center gap-2">
-              <Calendar className="w-3 h-3" /> {doc.tanggal || doc.date}
-            </p>
-            {doc.content && (
-              <p className="text-sm text-slate-400 line-clamp-3 mb-6 flex-1 italic">
-                "{doc.content}"
+              <h4 className="font-bold text-lg mb-1 line-clamp-1">{doc.judul || doc.title}</h4>
+              <p className="text-xs text-slate-500 mb-4 flex items-center gap-2">
+                <Calendar className="w-3 h-3" /> {doc.tanggal || doc.date}
               </p>
-            )}
-            <div className="mt-auto flex gap-2 pt-4 border-t border-white/5">
-              <button className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-xs font-bold transition-colors">Lihat</button>
-              {(doc.file_pdf || doc.file_path) && (
-                <button className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-slate-400 hover:text-white transition-colors"><Download className="w-4 h-4" /></button>
+              {doc.content && (
+                <p className="text-sm text-slate-400 line-clamp-3 mb-6 flex-1 italic">
+                  "{doc.content}"
+                </p>
               )}
+              <div className="mt-auto flex gap-2 pt-4 border-t border-white/5">
+                <button className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-xs font-bold transition-colors">Lihat</button>
+                {(doc.file_pdf || doc.file_path) && (
+                  <button className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-slate-400 hover:text-white transition-colors"><Download className="w-4 h-4" /></button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-        {docs.length === 0 && !loading && (
-          <div className="col-span-full py-32 glass rounded-3xl flex flex-col items-center justify-center text-slate-500 gap-4 border-dashed border-2 border-white/5">
-            <ClipboardList className="w-12 h-12 opacity-10" />
-            <p className="italic">Belum ada data yang tersedia.</p>
-          </div>
-        )}
-      </div>
+          ))}
+          {docs.length === 0 && (
+            <div className="col-span-full py-32 glass rounded-3xl flex flex-col items-center justify-center text-slate-500 gap-4 border-dashed border-2 border-white/5">
+              <ClipboardList className="w-12 h-12 opacity-10" />
+              <p className="italic">Belum ada data yang tersedia.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {docs.length > displayLimit && !loading && (
+        <div className="flex justify-center pt-8">
+          <button 
+            onClick={() => setDisplayLimit(prev => prev + 9)}
+            className="px-8 py-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/10 text-sm font-bold transition-all"
+          >
+            Muat Lebih Banyak
+          </button>
+        </div>
+      )}
 
       {/* Manual Entry Modal */}
       <AnimatePresence>
@@ -198,7 +225,7 @@ export default function DocumentModule({ type, token, addToast }: { type: 'agend
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="w-full max-w-lg glass rounded-[2.5rem] p-10 shadow-2xl relative z-10"
+              className="w-full max-w-lg glass rounded-[2.5rem] p-10 shadow-2xl relative z-10 max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
               <div className="flex items-center justify-between mb-8">
                 <h3 className="text-2xl font-bold">Input Manual</h3>

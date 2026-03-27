@@ -18,6 +18,16 @@ const QuestionCard = React.memo(({ q, onDownload }: { q: any; onDownload: (q: an
   const [showFull, setShowFull] = React.useState(false);
   const isLong = q.content.length > 1000;
 
+  const displayContent = React.useMemo(() => {
+    if (showFull || !isLong) return q.content;
+    // Strip large base64 images for preview to avoid breaking markdown and improve performance
+    // We replace them with a placeholder that the user can see in the full view
+    // Non-base64 images (Supabase URLs) are kept
+    const stripped = q.content.replace(/!\[.*?\]\(data:[^)]*?\)/g, '*(Gambar tersedia di tampilan penuh)*');
+    if (stripped.length <= 1000) return stripped;
+    return stripped.substring(0, 1000) + '...';
+  }, [q.content, showFull, isLong]);
+
   return (
     <div className="glass rounded-3xl p-8 border border-white/5">
       <div className="flex justify-between items-start mb-6">
@@ -97,7 +107,7 @@ const QuestionCard = React.memo(({ q, onDownload }: { q: any; onDownload: (q: an
             }
           }}
         >
-          {!showFull && isLong ? q.content.substring(0, 1000) + '...' : q.content}
+          {displayContent}
         </ReactMarkdown>
         {!showFull && isLong && (
           <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-slate-900 to-transparent flex items-end justify-center pb-4">
@@ -158,7 +168,8 @@ export default function AISoalModule({ token, addToast, questions, setQuestions 
         subject: params.subject,
         className: params.level,
         level: params.level,
-        config: params.config
+        config: params.config,
+        withImages: params.withImages
       });
 
       const res = await fetch('/api/ai-documents', {
@@ -550,7 +561,7 @@ export default function AISoalModule({ token, addToast, questions, setQuestions 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="w-full max-w-2xl glass rounded-[2.5rem] p-10 shadow-2xl relative z-10"
+              className="w-full max-w-2xl glass rounded-[2.5rem] p-10 shadow-2xl relative z-10 max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
               <div className="flex items-center justify-between mb-8">
                 <h3 className="text-2xl font-bold">Generate Soal dari File</h3>
@@ -569,6 +580,26 @@ export default function AISoalModule({ token, addToast, questions, setQuestions 
                     {uploadFile ? uploadFile.name : 'Klik atau seret file PDF/DOCX ke sini'}
                   </p>
                   <p className="text-[10px] text-slate-500 mt-2 uppercase tracking-widest">Maksimal 50MB</p>
+                </div>
+
+                <div className="flex items-center gap-3 p-4 bg-white/5 rounded-2xl border border-white/10">
+                  <div className="flex-1">
+                    <p className="text-sm font-bold">Sertakan Gambar</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">Gunakan AI untuk membuat ilustrasi soal</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setParams({...params, withImages: !params.withImages})}
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-all relative",
+                      params.withImages ? "bg-purple-500" : "bg-white/10"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 rounded-full bg-white transition-all",
+                      params.withImages ? "left-7" : "left-1"
+                    )} />
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
