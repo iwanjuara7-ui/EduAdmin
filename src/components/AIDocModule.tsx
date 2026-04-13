@@ -17,12 +17,17 @@ import html2canvas from "html2canvas";
 
 const DocCard = React.memo(({ doc, onSelect, onDownload }: { doc: any; onSelect: (doc: any) => void; onDownload: (doc: any, format: 'pdf' | 'doc') => void }) => {
   const contentPreview = React.useMemo(() => {
-    // Strip large base64 images for preview to avoid breaking markdown and improve performance
-    // We replace them with a placeholder that the user can see in the full view
-    // Non-base64 images (Supabase URLs) are kept
-    const stripped = doc.content.replace(/!\[.*?\]\(data:[^)]*?\)/g, '*(Gambar tersedia di detail)*');
-    if (stripped.length <= 800) return stripped;
-    return stripped.substring(0, 800) + '...';
+    // Only strip base64 if there are many of them or if they are very large
+    const base64Matches = doc.content.match(/!\[.*?\]\(data:[^)]*?\)/g) || [];
+    if (base64Matches.length > 1) {
+      return doc.content.replace(/!\[.*?\]\(data:[^)]*?\)/g, '*(Gambar tersedia di detail)*').substring(0, 800) + '...';
+    }
+    
+    if (doc.content.length > 1500) {
+      return doc.content.substring(0, 800) + '...';
+    }
+    
+    return doc.content;
   }, [doc.content]);
 
   return (
@@ -47,9 +52,7 @@ const DocCard = React.memo(({ doc, onSelect, onDownload }: { doc: any; onSelect:
             ),
             img: ({ src, ...props }) => {
               if (!src) return null;
-              // Don't show base64 in preview to save memory
-              if (src.startsWith('data:')) return <div className="p-4 bg-white/5 rounded-xl text-[10px] text-center text-slate-500 italic">Gambar tersedia di detail</div>;
-              return <img src={src} className="rounded-xl border border-white/10 max-h-40 object-cover w-full" {...props} />;
+              return <img src={src} className="rounded-xl border border-white/10 max-h-40 object-cover w-full" referrerPolicy="no-referrer" {...props} />;
             }
           }}
         >
@@ -397,6 +400,30 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
                                 className="max-w-full h-auto object-contain max-h-[400px] transition-transform duration-500 group-hover:scale-105"
                                 loading="lazy"
                                 referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  const parent = target.parentElement;
+                                  if (parent && !parent.querySelector('.img-error')) {
+                                    const errorMsg = document.createElement('div');
+                                    errorMsg.className = 'img-error p-8 text-center text-slate-500 text-xs italic flex flex-col items-center gap-4';
+                                    errorMsg.innerHTML = `
+                                      <svg class="w-8 h-8 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                                      <span>Gambar tidak dapat dimuat</span>
+                                      <button class="px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold transition-all not-italic">Muat Ulang</button>
+                                    `;
+                                    const btn = errorMsg.querySelector('button');
+                                    if (btn) {
+                                      btn.onclick = (ev) => {
+                                        ev.stopPropagation();
+                                        target.src = src + (src.includes('?') ? '&' : '?') + 'retry=' + Date.now();
+                                        target.style.display = 'block';
+                                        errorMsg.remove();
+                                      };
+                                    }
+                                    parent.appendChild(errorMsg);
+                                  }
+                                }}
                                 {...props} 
                               />
                             </div>

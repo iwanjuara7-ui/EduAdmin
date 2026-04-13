@@ -4,7 +4,7 @@ import { Sparkles, AlertCircle } from 'lucide-react';
 import { cn } from '../utils';
 import { Input } from './Common';
 
-export default function Login({ onLogin }: any) {
+export default function Login({ onLogin, onBack }: any) {
   const [isRegister, setIsRegister] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +68,13 @@ export default function Login({ onLogin }: any) {
         animate={{ opacity: 1, scale: 1 }}
         className="w-full max-w-md glass rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden z-10"
       >
+        <button 
+          onClick={onBack}
+          className="absolute top-6 right-6 p-2 hover:bg-white/5 rounded-full transition-colors text-slate-500 hover:text-slate-300"
+          title="Kembali ke Beranda"
+        >
+          <Sparkles className="w-4 h-4" />
+        </button>
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 via-cyan-500 to-purple-500"></div>
         <div className="text-center mb-10">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center mx-auto mb-6 shadow-xl shadow-purple-500/20">

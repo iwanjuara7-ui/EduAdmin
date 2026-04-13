@@ -9,6 +9,7 @@ import { cn } from './utils';
 import { useRef } from 'react';
 
 // Components
+import Landing from './components/Landing';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import SiswaModule from './components/SiswaModule';
@@ -25,6 +26,7 @@ type View = 'dashboard' | 'siswa' | 'absensi' | 'agenda' | 'laporan' | 'eraport'
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [showLogin, setShowLogin] = useState(false);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [stats, setStats] = useState({ students: 0, agenda: 0, reports: 0, eraport: 0 });
@@ -107,6 +109,7 @@ export default function App() {
   const handleLogout = () => {
     setToken(null);
     setUser(null);
+    setShowLogin(false);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
   };
@@ -121,13 +124,19 @@ export default function App() {
   };
 
   if (!token) {
-    return <Login onLogin={(t, u) => { 
-      setToken(t); 
-      setUser(u); 
-      localStorage.setItem('token', t); 
-      localStorage.setItem('user', JSON.stringify(u));
-      addToast('Selamat datang kembali, ' + u.name);
-    }} />;
+    if (!showLogin) {
+      return <Landing onStart={() => setShowLogin(true)} />;
+    }
+    return <Login 
+      onBack={() => setShowLogin(false)}
+      onLogin={(t, u) => { 
+        setToken(t); 
+        setUser(u); 
+        localStorage.setItem('token', t); 
+        localStorage.setItem('user', JSON.stringify(u));
+        addToast('Selamat datang kembali, ' + u.name);
+      }} 
+    />;
   }
 
   return (

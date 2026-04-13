@@ -20,12 +20,19 @@ const QuestionCard = React.memo(({ q, onDownload }: { q: any; onDownload: (q: an
 
   const displayContent = React.useMemo(() => {
     if (showFull || !isLong) return q.content;
-    // Strip large base64 images for preview to avoid breaking markdown and improve performance
-    // We replace them with a placeholder that the user can see in the full view
-    // Non-base64 images (Supabase URLs) are kept
-    const stripped = q.content.replace(/!\[.*?\]\(data:[^)]*?\)/g, '*(Gambar tersedia di tampilan penuh)*');
-    if (stripped.length <= 1000) return stripped;
-    return stripped.substring(0, 1000) + '...';
+    
+    // Only strip base64 if there are many of them or if they are very large
+    // For a better preview, we keep the first image if it's not too massive
+    const base64Matches = q.content.match(/!\[.*?\]\(data:[^)]*?\)/g) || [];
+    if (base64Matches.length > 1) {
+      return q.content.replace(/!\[.*?\]\(data:[^)]*?\)/g, '*(Gambar tersedia di tampilan penuh)*').substring(0, 1000) + '...';
+    }
+    
+    if (q.content.length > 2000) {
+      return q.content.substring(0, 1000) + '...';
+    }
+    
+    return q.content;
   }, [q.content, showFull, isLong]);
 
   return (
@@ -80,14 +87,28 @@ const QuestionCard = React.memo(({ q, onDownload }: { q: any; onDownload: (q: an
                       alt={alt || "Gambar Soal"} 
                       className="max-w-full h-auto object-contain max-h-[400px] transition-transform duration-500 group-hover:scale-105"
                       loading="lazy"
+                      referrerPolicy="no-referrer"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
                         target.style.display = 'none';
                         const parent = target.parentElement;
-                        if (parent) {
+                        if (parent && !parent.querySelector('.img-error')) {
                           const errorMsg = document.createElement('div');
-                          errorMsg.className = 'p-8 text-center text-slate-500 text-xs italic flex flex-col items-center gap-2';
-                          errorMsg.innerHTML = '<svg class="w-8 h-8 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg><span>Gambar tidak dapat dimuat</span>';
+                          errorMsg.className = 'img-error p-8 text-center text-slate-500 text-xs italic flex flex-col items-center gap-4';
+                          errorMsg.innerHTML = `
+                            <svg class="w-8 h-8 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                            <span>Gambar tidak dapat dimuat</span>
+                            <button class="px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold transition-all not-italic">Muat Ulang</button>
+                          `;
+                          const btn = errorMsg.querySelector('button');
+                          if (btn) {
+                            btn.onclick = (ev) => {
+                              ev.stopPropagation();
+                              target.src = src + (src.includes('?') ? '&' : '?') + 'retry=' + Date.now();
+                              target.style.display = 'block';
+                              errorMsg.remove();
+                            };
+                          }
                           parent.appendChild(errorMsg);
                         }
                       }}
@@ -543,7 +564,9 @@ export default function AISoalModule({ token, addToast, questions, setQuestions 
                   className="w-full py-4 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
                 >
                   {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wand2 className="w-5 h-5" />}
-                  {generating ? 'Sedang Merumuskan Soal...' : 'Generate Soal AI'}
+                  {generating 
+                    ? (params.withImages ? 'Sedang Merumuskan Soal & Gambar...' : 'Sedang Merumuskan Soal...') 
+                    : 'Generate Soal AI'}
                 </button>
               </form>
             </motion.div>
@@ -651,7 +674,9 @@ export default function AISoalModule({ token, addToast, questions, setQuestions 
                   className="w-full py-4 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-2xl font-bold text-white shadow-lg shadow-purple-500/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                  {generating ? 'Sedang Memproses File...' : 'Proses File dengan AI'}
+                  {generating 
+                    ? (params.withImages ? 'Sedang Memproses File & Gambar...' : 'Sedang Memproses File...') 
+                    : 'Proses File dengan AI'}
                 </button>
               </form>
             </motion.div>

@@ -72,7 +72,7 @@ export function renderMarkdownToHtml(markdown: string): string {
   // Images and Links
   html = html.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, src) => {
     if (!src || src.trim() === '') return '';
-    return `<img alt="${alt}" src="${src}" style="max-width: 100%; margin: 15pt 0; display: block; margin-left: auto; margin-right: auto;" />`;
+    return `<img alt="${alt}" src="${src}" referrerPolicy="no-referrer" style="max-width: 100%; margin: 15pt 0; display: block; margin-left: auto; margin-right: auto;" />`;
   });
   html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" style="color: #0056b3; text-decoration: underline;">$1</a>');
 

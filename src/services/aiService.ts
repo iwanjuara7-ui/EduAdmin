@@ -24,11 +24,21 @@ const uploadBase64ToSupabase = async (base64Data: string, mimeType: string) => {
     }
 
     const { data: { session } } = await supabase.auth.getSession();
-    const userId = session?.user?.id;
+    let userId = session?.user?.id;
     
     if (!userId) {
-      console.warn('User not authenticated. Falling back to base64 for image.');
-      return `data:${mimeType};base64,${base64Data}`;
+      // Try to get from localStorage if using custom backend
+      try {
+        const savedUser = localStorage.getItem('user');
+        if (savedUser) {
+          const parsed = JSON.parse(savedUser);
+          userId = parsed.id || parsed.uid || 'anonymous';
+        } else {
+          userId = 'anonymous';
+        }
+      } catch (e) {
+        userId = 'anonymous';
+      }
     }
     
     // Convert base64 to Blob
@@ -77,9 +87,9 @@ const uploadBase64ToSupabase = async (base64Data: string, mimeType: string) => {
   }
 };
 
-export const generateImage = async (prompt: string) => {
+export const generateImage = async (prompt: string, retryCount = 0): Promise<string | null> => {
   const ai = getAI();
-  console.log(`Starting image generation for: "${prompt}"`);
+  console.log(`Starting image generation (attempt ${retryCount + 1}) for: "${prompt}"`);
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
@@ -89,6 +99,7 @@ export const generateImage = async (prompt: string) => {
       config: {
         imageConfig: {
           aspectRatio: "1:1",
+          imageSize: "1K"
         },
       },
     });
@@ -101,47 +112,60 @@ export const generateImage = async (prompt: string) => {
         return url;
       }
     }
+    
+    if (retryCount < 1) {
+      console.log("No image data in response, retrying...");
+      return generateImage(prompt, retryCount + 1);
+    }
+    
     return null;
   } catch (error) {
-    console.error("Image generation error details:", error);
+    console.error(`Image generation error (attempt ${retryCount + 1}):`, error);
+    if (retryCount < 1) {
+      return generateImage(prompt, retryCount + 1);
+    }
     return null;
   }
 };
 
-const SYSTEM_INSTRUCTION = `You are a professional Indonesian SMA (Senior High School) education expert. 
-Your task is to generate a high-quality education document (RPP, Modul, Materi, LKS, or Soal Ujian) based on the provided context or file content.
+const SYSTEM_INSTRUCTION = `Anda adalah pakar pendidikan SMA (Sekolah Menengah Atas) di Indonesia yang sangat berpengalaman.
+Tugas Anda adalah membuat dokumen pendidikan berkualitas tinggi (RPP, Modul, Materi, LKS, atau Soal Ujian) berdasarkan konteks atau konten file yang diberikan.
 
-CRITICAL RULES:
-1. Return ONLY the content in Markdown format.
-2. Do NOT include any conversational filler, introductory text, or concluding remarks.
-3. Do NOT use code blocks like \`\`\`markdown or \`\`\` at the beginning or end.
-4. REMOVE all unnecessary strings, headers, footers, or artifacts from the file extraction.
-5. For Mathematical, Physics, or Chemical formulas, use LaTeX format ($...$ for inline, $$...$$ for block).
-6. Make the formulas attractive, easy to read, and easy to understand.
-7. Organize the content into clear sections: 
-   - For RPP/Modul/Materi: Pendahuluan, Inti, Penutup, and Penilaian.
-   - For LKS (Lembar Kerja Siswa): Identitas, Petunjuk Belajar, Kompetensi/Tujuan, Ringkasan Materi, Tugas/Latihan, and Penilaian.
-   - For Soal Ujian: List of questions with clear numbering and options (if multiple choice).
-   - For ProTa (Program Tahunan): Use a Markdown TABLE with columns: No, Semester, Kompetensi Dasar/Tujuan Pembelajaran, Alokasi Waktu (JP), and Keterangan.
-   - For ProSem (Program Semester): Use a Markdown TABLE with columns: No, Materi Pokok, Alokasi Waktu (JP), and monthly distribution (Jan, Feb, Mar, etc. with weeks 1-4/5). Use 'X' or numbers to mark the weeks.
-8. Use professional Indonesian language (Bahasa Indonesia yang baik dan benar).
-9. VISUAL CONTENT: If a question or explanation would benefit from a diagram, chart, or illustration (especially in Science/Math), insert a tag: [IMAGE_PROMPT: a very detailed English description of the visual needed].
-10. TABLES: Always use standard Markdown tables for data that is best presented in a tabular format. Ensure tables have clear headers and at least 3-5 rows of data. DO NOT use raw HTML tags like <br> inside table cells; use standard Markdown line breaks (two spaces at the end of a line) if needed.`;
+ATURAN KRITIS:
+1. Kembalikan HANYA konten dalam format Markdown.
+2. JANGAN sertakan basa-basi, kalimat pembuka, atau penutup (seperti "Tentu, ini soalnya...").
+3. JANGAN gunakan blok kode seperti \`\`\`markdown atau \`\`\` di awal atau akhir.
+4. HAPUS semua string, header, footer, atau artefak yang tidak perlu dari ekstraksi file.
+5. Untuk rumus Matematika, Fisika, atau Kimia, WAJIB gunakan format LaTeX ($...$ untuk inline, $$...$$ untuk blok).
+6. Buat rumus terlihat cantik, mudah dibaca, dan mudah dipahami.
+7. Atur konten ke dalam bagian yang jelas:
+   - Untuk RPP/Modul/Materi: Pendahuluan, Inti, Penutup, dan Penilaian.
+   - Untuk LKS: Identitas, Petunjuk Belajar, Kompetensi/Tujuan, Ringkasan Materi, Tugas/Latihan, dan Penilaian.
+   - Untuk Soal Ujian: Daftar soal dengan penomoran jelas dan opsi (jika pilihan ganda).
+   - Untuk ProTa: Gunakan TABEL Markdown dengan kolom: No, Semester, Kompetensi Dasar/Tujuan Pembelajaran, Alokasi Waktu (JP), dan Keterangan.
+   - Untuk ProSem: Gunakan TABEL Markdown dengan kolom: No, Materi Pokok, Alokasi Waktu (JP), dan distribusi bulanan (Jan, Feb, Mar, dst. dengan minggu 1-4/5). Gunakan 'X' atau angka untuk menandai minggu.
+8. Gunakan Bahasa Indonesia yang formal, profesional, dan edukatif.
+9. KONTEN VISUAL (SANGAT PENTING): Jika mode gambar aktif, Anda WAJIB menyertakan diagram, bagan, atau ilustrasi untuk konsep yang membutuhkan penjelasan visual (terutama di Sains, Matematika, dan Geografi).
+   Gunakan tag: [IMAGE_PROMPT: deskripsi teknis dalam Bahasa Inggris yang sangat mendetail].
+   Deskripsi HARUS dalam Bahasa Inggris dan sangat teknis agar dipahami oleh AI pembuat gambar.
+10. TABEL: Selalu gunakan tabel Markdown standar untuk data yang paling baik disajikan dalam format tabular.`;
 
 const cleanAIResponse = (text: string) => {
   if (!text) return '';
   
-  // Remove markdown code block wrappers
-  let cleaned = text.replace(/```markdown\n?/g, '').replace(/```\n?/g, '');
+  // Remove markdown code block wrappers (any language)
+  let cleaned = text.replace(/^```[a-zA-Z]*\n?/gm, '').replace(/\n?```$/gm, '');
   
   // Remove common AI introductory/concluding phrases (Indonesian)
   const phrasesToRemove = [
     /^Tentu, berikut adalah.*:?\n?/i,
     /^Berikut adalah.*:?\n?/i,
     /^Ini adalah.*:?\n?/i,
+    /^Baik, saya akan membuat.*:?\n?/i,
     /\n?Semoga bermanfaat.*$/i,
     /\n?Demikian.*$/i,
-    /\n?Terima kasih.*$/i
+    /\n?Terima kasih.*$/i,
+    /\n?Silakan beri tahu jika.*$/i
   ];
   
   phrasesToRemove.forEach(phrase => {
@@ -163,32 +187,32 @@ export const generateEducationDocument = async (params: {
   withImages?: boolean;
 }) => {
   const ai = getAI();
-  let prompt = `Generate a professional Indonesian SMA (Senior High School) education document of type ${params.type}.
-  Subject: ${params.subject}
-  Class: ${params.className}
-  Topic: ${params.topic}
-  Learning Objectives: ${params.objectives}
-  Duration: ${params.duration}`;
+  let prompt = `Buatlah dokumen pendidikan SMA profesional tipe ${params.type}.
+  Mata Pelajaran: ${params.subject}
+  Kelas: ${params.className}
+  Topik: ${params.topic}
+  Tujuan Pembelajaran: ${params.objectives}
+  Durasi: ${params.duration}`;
 
   if (params.semester) {
     prompt += `\n  Semester: ${params.semester}`;
   }
 
   if (params.academicCalendar) {
-    prompt += `\n  Academic Calendar / Effective Weeks Info: ${params.academicCalendar}
-    CRITICAL: You MUST distribute the teaching weeks (Mg) according to this specific calendar info. Do NOT cluster all weeks in one month. Spread them realistically across the semester months.`;
+    prompt += `\n  Kalender Akademik / Info Minggu Efektif: ${params.academicCalendar}
+    KRITIS: Anda WAJIB mendistribusikan minggu mengajar (Mg) sesuai dengan info kalender ini. JANGAN kumpulkan semua minggu dalam satu bulan. Sebarkan secara realistis di seluruh bulan semester.`;
   } else if (params.type.includes('ProSem') || params.type.includes('ProTa')) {
-    prompt += `\n  CRITICAL: Distribute the teaching weeks (Mg) realistically across the months. Do NOT cluster all weeks in one month. Ensure a balanced distribution for a typical academic semester.`;
+    prompt += `\n  KRITIS: Distribusikan minggu mengajar (Mg) secara realistis di seluruh bulan. JANGAN kumpulkan semua minggu dalam satu bulan. Pastikan distribusi seimbang untuk semester akademik tipikal.`;
   }
   
-  prompt += `\n\n  Ensure all formulas are converted to beautiful LaTeX.`;
+  prompt += `\n\n  Pastikan semua rumus dikonversi ke LaTeX yang indah.`;
 
   if (params.withImages) {
-    prompt += `\n\nCRITICAL FOR VISUAL CONTENT:
-    You MUST include diagrams, charts, or illustrations for concepts that require visual explanation (e.g., Physics circuits, Biology cells, Math geometry, Chemistry molecular structures).
-    For EACH such concept, insert a tag immediately after the explanation text: [IMAGE_PROMPT: very detailed English description of the diagram].
-    Example: [IMAGE_PROMPT: A detailed physics circuit diagram with a 12V battery and three resistors (2 ohm, 4 ohm, 6 ohm) in a combination of series and parallel].
-    The description MUST be in English and very specific to allow for accurate generation.`;
+    prompt += `\n\nINSTRUKSI VISUAL (MODE VISUAL AKTIF):
+    Anda WAJIB menyertakan minimal 3-5 ilustrasi visual menggunakan tag khusus: [IMAGE_PROMPT: deskripsi_detail_dalam_bahasa_inggris]
+    - Letakkan tag di bagian yang membutuhkan penjelasan visual (misal: struktur sel, grafik fungsi, siklus air).
+    - Deskripsi HARUS dalam Bahasa Inggris dan sangat teknis agar dipahami oleh AI pembuat gambar.
+    - Contoh: [IMAGE_PROMPT: A professional educational diagram of the human digestive system with labels]`;
   }
 
   const response = await ai.models.generateContent({
@@ -207,24 +231,37 @@ export const generateEducationDocument = async (params: {
 };
 
 const processImageTags = async (content: string) => {
-  const imageRegex = /\[IMAGE_PROMPT:\s*([^\]]+)\]/gi;
+  // More robust regex to handle variations in spacing, case, and potential markdown formatting like bolding
+  const imageRegex = /(?:\*\*|__)?\[IMAGE_PROMPT:\s*([^\]]+)\](?:\*\*|__)?/gi;
   const matches = Array.from(content.matchAll(imageRegex));
   
-  if (matches.length === 0) return content;
+  if (matches.length === 0) {
+    console.log("No image prompts found in the content. Raw content preview (first 500 chars):", content.substring(0, 500));
+    return content;
+  }
 
   console.log(`Found ${matches.length} image prompts. Generating images...`);
 
   // Parallelize image generation with individual error handling
-  const imagePromises = matches.map(async (match) => {
+  const imagePromises = matches.map(async (match, index) => {
     const fullTag = match[0];
     const imagePrompt = match[1].trim();
+    console.log(`Generating image ${index + 1}/${matches.length} for prompt: "${imagePrompt}"`);
     try {
       // Add more descriptive context to the prompt for better results
-      const enhancedPrompt = `High quality educational illustration for: ${imagePrompt}. Style: clean, professional, academic, 2D vector illustration, white background.`;
+      const enhancedPrompt = `Educational illustration: ${imagePrompt}. 
+      Style: Professional academic diagram, 2D vector art, clean lines, high contrast, white background, labeled clearly in English if necessary. 
+      No realistic photos, only clear educational diagrams or illustrations. 
+      The image should be simple, clear, and easy to understand for students.`;
       const imageUrl = await generateImage(enhancedPrompt);
+      if (imageUrl) {
+        console.log(`Successfully generated image ${index + 1} URL: ${imageUrl.substring(0, 50)}...`);
+      } else {
+        console.warn(`Failed to generate image ${index + 1} for prompt: "${imagePrompt}"`);
+      }
       return { fullTag, imageUrl };
     } catch (err) {
-      console.error(`Error generating image for prompt "${imagePrompt}":`, err);
+      console.error(`Error generating image ${index + 1} for prompt "${imagePrompt}":`, err);
       return { fullTag, imageUrl: null };
     }
   });
@@ -236,9 +273,10 @@ const processImageTags = async (content: string) => {
     if (imageUrl) {
       // Use a more robust replacement that handles multiple occurrences of the same tag
       // and ensures it's rendered as a proper markdown image
-      const markdownImage = `\n\n![${fullTag.replace(/[\[\]]/g, '')}](${imageUrl})\n\n`;
+      const markdownImage = `\n\n![Ilustrasi Edukasi](${imageUrl})\n\n`;
       updatedContent = updatedContent.split(fullTag).join(markdownImage);
     } else {
+      console.warn(`Image generation failed for tag: ${fullTag}`);
       updatedContent = updatedContent.split(fullTag).join(`\n\n*(Gambar tidak dapat dimuat: ${fullTag.replace(/[\[\]]/g, '')})*\n\n`);
     }
   }
@@ -255,20 +293,25 @@ export const generateExamQuestions = async (params: {
   const ai = getAI();
   const configStr = params.config.map(c => `${c.count} ${c.type}${c.difficulty ? ` (${c.difficulty})` : ''}`).join(', ');
   
-  let prompt = `Generate ${params.subject} exam questions for SMA level ${params.level}.
-  Topic: ${params.topic}
-  Detailed Question distribution: ${configStr}.
+  let prompt = `Buatlah soal ujian ${params.subject} untuk tingkat SMA kelas ${params.level}.
+  Topik: ${params.topic}
+  Distribusi Soal: ${configStr}.
   
-  Please strictly follow the detailed question distribution for each type and its specific difficulty level (LOTS/MOTS/HOTS).
-  Include an answer key at the end.
-  Ensure all formulas are converted to beautiful LaTeX.`;
+  Patuhi distribusi soal dan tingkat kesulitan (LOTS/MOTS/HOTS).
+  Sertakan kunci jawaban di akhir.
+  Gunakan LaTeX untuk semua rumus.`;
 
   if (params.withImages) {
-    prompt += `\n\nCRITICAL FOR VISUAL QUESTIONS:
-    You MUST include diagrams, charts, or illustrations for questions that require visual analysis (e.g., Physics circuits, Biology cells, Math geometry, Chemistry molecular structures).
-    For EACH such question, insert a tag immediately after the question text: [IMAGE_PROMPT: very detailed English description of the diagram].
-    Example: [IMAGE_PROMPT: A detailed physics circuit diagram with a 12V battery and three resistors (2 ohm, 4 ohm, 6 ohm) in a combination of series and parallel].
-    The description MUST be in English and very specific to allow for accurate generation.`;
+    prompt += `\n\nINSTRUKSI VISUAL (MODE SOAL VISUAL AKTIF):
+    Anda WAJIB menyertakan minimal satu gambar untuk setiap 2-3 soal.
+    Format tag: [IMAGE_PROMPT: deskripsi_detail_dalam_bahasa_inggris]
+    Letakkan tag tepat di bawah teks soal sebelum pilihan jawaban.
+    Contoh:
+    1. Perhatikan gambar berikut! Apa nama organel sel yang ditunjuk?
+    [IMAGE_PROMPT: A high-quality 3D diagram of a plant cell with a specific organelle highlighted]
+    A. Mitokondria
+    B. Ribosom
+    ...`;
   }
 
   const response = await ai.models.generateContent({
@@ -300,22 +343,22 @@ export const generateFromFile = async (file: File, params: {
   const ai = getAI();
   const fileExt = file.name.split('.').pop()?.toLowerCase();
   
-  let userPrompt = `Generate a ${params.type} for:
-  Subject: ${params.subject}
-  Class: ${params.className || params.level}
-  ${params.duration ? `Duration: ${params.duration}` : ''}
+  let userPrompt = `Buatlah dokumen ${params.type} untuk:
+  Mata Pelajaran: ${params.subject}
+  Kelas/Tingkat: ${params.className || params.level}
+  ${params.duration ? `Durasi: ${params.duration}` : ''}
   ${params.semester ? `Semester: ${params.semester}` : ''}
-  ${params.academicCalendar ? `Academic Calendar Info: ${params.academicCalendar}` : ''}
-  ${params.config ? `Detailed Question distribution: ${params.config.map(c => `${c.count} ${c.type}${c.difficulty ? ` (${c.difficulty})` : ''}`).join(', ')}` : ''}
+  ${params.academicCalendar ? `Info Kalender Akademik: ${params.academicCalendar}` : ''}
+  ${params.config ? `Distribusi Soal: ${params.config.map(c => `${c.count} ${c.type}${c.difficulty ? ` (${c.difficulty})` : ''}`).join(', ')}` : ''}
   
-  Use the content from the attached file to build this document. Ensure all formulas are converted to beautiful LaTeX.`;
+  Gunakan konten dari file yang dilampirkan untuk membangun dokumen ini. Pastikan semua rumus dikonversi ke LaTeX yang indah.`;
 
   if (params.withImages) {
-    userPrompt += `\n\nCRITICAL FOR VISUAL QUESTIONS:
-    You MUST include diagrams, charts, or illustrations for questions that require visual analysis (e.g., Physics circuits, Biology cells, Math geometry, Chemistry molecular structures).
-    For EACH such question, insert a tag immediately after the question text: [IMAGE_PROMPT: very detailed English description of the diagram].
-    Example: [IMAGE_PROMPT: A detailed physics circuit diagram with a 12V battery and three resistors (2 ohm, 4 ohm, 6 ohm) in a combination of series and parallel].
-    The description MUST be in English and very specific to allow for accurate generation.`;
+    userPrompt += `\n\nINSTRUKSI VISUAL (MODE VISUAL AKTIF):
+    Anda WAJIB menyertakan diagram, bagan, atau ilustrasi untuk bagian yang membutuhkan penjelasan visual berdasarkan konten file.
+    Format tag: [IMAGE_PROMPT: deskripsi_detail_dalam_bahasa_inggris]
+    Letakkan tag tepat setelah teks penjelasan.
+    Contoh: [IMAGE_PROMPT: A detailed biology diagram of a plant cell with clearly labeled organelles. 2D vector style.]`;
   }
 
   if (params.type.includes('ProSem') || params.type.includes('ProTa')) {
