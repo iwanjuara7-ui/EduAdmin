@@ -80,8 +80,8 @@ const QuestionCard = React.memo(({ q, onDownload }: { q: any; onDownload: (q: an
             img: ({ src, alt, ...props }) => {
               if (!src) return null;
               return (
-                <div className="my-6 flex flex-col items-center">
-                  <div className="relative group overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-2xl transition-all hover:border-purple-500/50">
+                <span className="my-6 flex flex-col items-center block">
+                  <span className="relative group overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-2xl transition-all hover:border-purple-500/50 block">
                     <img 
                       src={src} 
                       alt={alt || "Gambar Soal"} 
@@ -114,16 +114,16 @@ const QuestionCard = React.memo(({ q, onDownload }: { q: any; onDownload: (q: an
                       }}
                       {...props} 
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center p-4">
+                    <span className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center p-4">
                       <span className="text-[10px] font-bold text-white uppercase tracking-widest bg-purple-500/80 px-3 py-1 rounded-full backdrop-blur-sm">Klik untuk memperbesar</span>
-                    </div>
-                  </div>
+                    </span>
+                  </span>
                   {alt && (
-                    <p className="mt-3 text-[10px] font-medium text-slate-500 italic uppercase tracking-wider">
+                    <span className="mt-3 text-[10px] font-medium text-slate-500 italic uppercase tracking-wider block">
                       {alt}
-                    </p>
+                    </span>
                   )}
-                </div>
+                </span>
               );
             }
           }}

@@ -392,8 +392,8 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
                       img: ({ src, alt, ...props }) => {
                         if (!src) return null;
                         return (
-                          <div className="my-6 flex flex-col items-center">
-                            <div className="relative group overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-2xl transition-all hover:border-purple-500/50">
+                          <span className="my-6 flex flex-col items-center block">
+                            <span className="relative group overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-2xl transition-all hover:border-purple-500/50 block">
                               <img 
                                 src={src} 
                                 alt={alt || "Gambar Dokumen"} 
@@ -426,13 +426,13 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
                                 }}
                                 {...props} 
                               />
-                            </div>
+                            </span>
                             {alt && (
-                              <p className="mt-3 text-[10px] font-medium text-slate-500 italic uppercase tracking-wider">
+                              <span className="mt-3 text-[10px] font-medium text-slate-500 italic uppercase tracking-wider block">
                                 {alt}
-                              </p>
+                              </span>
                             )}
-                          </div>
+                          </span>
                         );
                       }
                     }}
@@ -477,6 +477,7 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
                       <option value="Program Semester (ProSem)" className="bg-slate-900">Program Semester (ProSem)</option>
                       <option value="Materi Pembelajaran" className="bg-slate-900">Materi Pembelajaran</option>
                       <option value="Lembar Kerja Siswa (LKS)" className="bg-slate-900">Lembar Kerja Siswa (LKS)</option>
+                      <option value="LKPD (Kurikulum Merdeka - Deep Learning)" className="bg-slate-900">LKPD (Kurikulum Merdeka - Deep Learning)</option>
                     </select>
                   </div>
                   <Input label="Topik / Judul Materi" placeholder="Contoh: Trigonometri Dasar" value={params.topic} onChange={(e: any) => setParams({...params, topic: e.target.value})} required />
@@ -595,6 +596,7 @@ export default function AIDocModule({ token, addToast, docs, setDocs }: { token:
                       <option value="Program Semester (ProSem)" className="bg-slate-900">Program Semester (ProSem)</option>
                       <option value="Materi Pembelajaran" className="bg-slate-900">Materi Pembelajaran</option>
                       <option value="Lembar Kerja Siswa (LKS)" className="bg-slate-900">Lembar Kerja Siswa (LKS)</option>
+                      <option value="LKPD (Kurikulum Merdeka - Deep Learning)" className="bg-slate-900">LKPD (Kurikulum Merdeka - Deep Learning)</option>
                     </select>
                   </div>
                   <Input label="Mata Pelajaran" placeholder="Contoh: Matematika" value={params.subject} onChange={(e: any) => setParams({...params, subject: e.target.value})} required />

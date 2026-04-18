@@ -129,18 +129,21 @@ export const generateImage = async (prompt: string, retryCount = 0): Promise<str
 };
 
 const SYSTEM_INSTRUCTION = `Anda adalah pakar pendidikan SMA (Sekolah Menengah Atas) di Indonesia yang sangat berpengalaman.
-Tugas Anda adalah membuat dokumen pendidikan berkualitas tinggi (RPP, Modul, Materi, LKS, atau Soal Ujian) berdasarkan konteks atau konten file yang diberikan.
+Tugas Anda adalah membuat dokumen pendidikan berkualitas tinggi (RPP, Modul, Materi, LKS/LKPD, atau Soal Ujian) berdasarkan konteks atau konten file yang diberikan.
 
-ATURAN KRITIS:
-1. Kembalikan HANYA konten dalam format Markdown.
+ATURAN KRITIS (KURIKULUM MERDEKA & DEEP LEARNING):
+1. Fokus pada Profil Pelajar Pancasila, Pembelajaran Berdiferensiasi, dan Capaian Pembelajaran (CP).
+2. Terapkan prinsip Deep Learning (Meaningful Learning): Mindful, Meditative, Meta-cognitive.
+3. Struktur LKPD/LKS harus interaktif, mendorong penyelidikan, dan refleksi.
+4. Kembalikan HANYA konten dalam format Markdown.
 2. JANGAN sertakan basa-basi, kalimat pembuka, atau penutup (seperti "Tentu, ini soalnya...").
 3. JANGAN gunakan blok kode seperti \`\`\`markdown atau \`\`\` di awal atau akhir.
 4. HAPUS semua string, header, footer, atau artefak yang tidak perlu dari ekstraksi file.
 5. Untuk rumus Matematika, Fisika, atau Kimia, WAJIB gunakan format LaTeX ($...$ untuk inline, $$...$$ untuk blok).
 6. Buat rumus terlihat cantik, mudah dibaca, dan mudah dipahami.
-7. Atur konten ke dalam bagian yang jelas:
+10. Atur konten ke dalam bagian yang jelas:
    - Untuk RPP/Modul/Materi: Pendahuluan, Inti, Penutup, dan Penilaian.
-   - Untuk LKS: Identitas, Petunjuk Belajar, Kompetensi/Tujuan, Ringkasan Materi, Tugas/Latihan, dan Penilaian.
+   - Untuk LKPD/LKS: Identitas, Capaian Pembelajaran, Petunjuk Belajar, Ringkasan Materi Interaktif, Lembar Kerja/Tantangan (Case Study/Problem Based), Refleksi Terbimbing, dan Penilaian.
    - Untuk Soal Ujian: Daftar soal dengan penomoran jelas dan opsi (jika pilihan ganda).
    - Untuk ProTa: Gunakan TABEL Markdown dengan kolom: No, Semester, Kompetensi Dasar/Tujuan Pembelajaran, Alokasi Waktu (JP), dan Keterangan.
    - Untuk ProSem: Gunakan TABEL Markdown dengan kolom: No, Materi Pokok, Alokasi Waktu (JP), dan distribusi bulanan (Jan, Feb, Mar, dst. dengan minggu 1-4/5). Gunakan 'X' atau angka untuk menandai minggu.
@@ -205,6 +208,14 @@ export const generateEducationDocument = async (params: {
     prompt += `\n  KRITIS: Distribusikan minggu mengajar (Mg) secara realistis di seluruh bulan. JANGAN kumpulkan semua minggu dalam satu bulan. Pastikan distribusi seimbang untuk semester akademik tipikal.`;
   }
   
+  if (params.type.includes('LKPD') || params.type.includes('LKS')) {
+    prompt += `\n\nKHUSUS LKPD/LKS:
+    - Terapkan standar Kurikulum Merdeka.
+    - Gunakan pendekatan Deep Learning (Mindful, Meditative, Meta-cognitive).
+    - Pastikan ada bagian Masalah Otentik atau Proyek Nyata.
+    - Sertakan pertanyaan reflektif yang mendalam untuk siswa.`;
+  }
+
   prompt += `\n\n  Pastikan semua rumus dikonversi ke LaTeX yang indah.`;
 
   if (params.withImages) {
